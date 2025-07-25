@@ -1,0 +1,174 @@
+#!/bin/bash
+# Common logger definition file
+#_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+#
+# logger.sh ver.1.0.0 2025.01.24
+#
+# Usage:
+#     --------
+#
+# Description:
+#     各種スクリプトより呼び出されるlog出力機能を提供する。
+#
+# 設計書
+#     none
+#
+#_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+# ＜変更履歴＞
+# Ver. 変更管理No. 日付        更新者       変更内容
+# 1.0  PR-0001    2025/01/16 Bepro       新規作成
+#_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+
+# ------------------------------------------------------------
+# ログレベルの優先度定義
+# ------------------------------------------------------------
+declare -A LOG_LEVEL_PRIORITY=(
+    ['DEBUG']='0' 
+    ['INFO']='1' 
+    ['WARNING']='2' 
+    ['ERROR']='3' 
+  )
+
+
+# ------------------------------------------------------------
+# グローバル変数
+# ------------------------------------------------------------
+DEFAULT_LOG_MODE="CONSOLE"  # ログの出力モード (FILE, CONSOLE, SYSLOG)
+SCRIPT_NAME=`basename $0`
+BASE_PATH=${BASE_PATH:-"/work/scripts/"}
+COM_PATH=${BASE_PATH}/com
+ETC_PATH=${BASE_PATH}/etc
+LOG_PATH=${BASE_PATH}/log
+TMP_PATH=${BASE_PATH}/tmp
+REP_PATH=${BASE_PATH}/rep
+SCRIPT_NAME=$(basename "$0")
+INFRA_MSG_CONF="${ETC_PATH}/infraMessage.cfg"
+LOG_FORMAT="%s [ %-5s] %s\n"  # デフォルトのログフォーマット
+LOG_LEVEL=${LOG_LEVEL:-"DEBUG"}  # デフォルトのログレベル
+TIMER_START=0
+JOB_OK=0
+JOB_WR=1
+JOB_ER=2
+export INFRA_MSG_CONF
+export SCRIPT_NAME
+
+# ------------------------------------------------------------
+# 関数定義
+# ------------------------------------------------------------
+
+# 区切り線の表示
+divider() {
+  local message="$1"
+  echo -e "\n    ------------"
+  echo -e "    ▼ ${message}"
+}
+
+# ログ開始処理
+startLog() {
+  if [[ "${DEFAULT_LOG_MODE}" == "FILE" ]]; then
+    exec >> "${LOG_PATH}/${SCRIPT_NAME%%.*}.log" 2>&1
+  fi
+  logOut "INFO" "SCRIPT:[${SCRIPT_NAME}] PID:[$$] STARTED LOG."
+}
+
+# ログ終了処理
+exitLog() {
+  local rc=${1:-${JOB_ER}}
+  local status
+
+  case "${rc}" in
+    0) status="INFO" ;;
+    1) status="WARNING" ;;
+    2) status="ERROR" ;;
+    *) status="FATAL" ;;
+  esac
+
+  logOut "${status}" "SCRIPT:[${SCRIPT_NAME}] PID:[$$] ENDED LOG."
+  exit "${rc}"
+}
+
+# ログ出力関数
+logOut() {
+  local level="$1"
+  shift
+  local message="$*"
+
+  if (( LOG_LEVEL_PRIORITY["${level}"] >= LOG_LEVEL_PRIORITY["${LOG_LEVEL}"] )); then
+    local formatted_message
+    formatted_message=$(printf "${LOG_FORMAT}" "$(date +"%Y-%m-%d %H:%M:%S")" "${level}" "${message}")
+
+    case "${DEFAULT_LOG_MODE}" in
+      "FILE") echo "${formatted_message}" >> "${LOG_PATH}/${SCRIPT_NAME%%.*}.log" ;;
+      "CONSOLE") echo "${formatted_message}" ;;
+      "SYSLOG") logger -p user."${level,,}" "${formatted_message}" ;;
+      *) echo "Invalid log mode: ${DEFAULT_LOG_MODE}" ;;
+    esac
+  fi
+}
+
+# 外部ファイルからメッセージを取得して展開
+getMsg() {
+  local msg_id="$1"
+  if [[ ! -f ${INFRA_MSG_CONF} ]]; then
+    logOut "ERROR" "Message configuration file not found: ${INFRA_MSG_CONF}"
+    return ${JOB_ER}
+  fi
+
+  local message
+  message=$(awk -v id="${msg_id}" -F= '$1 == id {print $2}' "${INFRA_MSG_CONF}")
+
+  if [[ -z "${message}" ]]; then
+    logOut "WARNING" "Message ID not found: ${msg_id}"
+    return ${JOB_WR}
+  fi
+
+  # 二重展開を実施
+  eval "echo \"${message}\""
+}
+
+# タイマー開始
+startTimer() {
+  TIMER_START=$(date +%s)
+}
+
+# タイマー終了と実行時間出力
+endTimer() {
+  local end_time=$(date +%s)
+  local elapsed=$((end_time - TIMER_START))
+  logOut "INFO" "Execution time: ${elapsed} seconds."
+}
+
+# コマンドライン引数の解析
+parseArgs() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log-level)
+        LOG_LEVEL="$2"
+        shift 2
+        ;;
+      --log-mode)
+        DEFAULT_LOG_MODE="$2"
+        shift 2
+        ;;
+      *)
+        echo "Unknown argument: $1"
+        exit 1
+        ;;
+    esac
+  done
+}
+
+# ------------------------------------------------------------
+# 使用例
+# ------------------------------------------------------------
+# parseArgs "$@"
+# export LOG_LEVEL="INFO"
+# export DEFAULT_LOG_MODE="CONSOLE"
+# startLog
+# startTimer
+# logOut "INFO" "This is an info message."
+# logOut "WARNING" "This is a warning message."
+# logOut "ERROR" "This is an error message."
+# getMsg "MSG001"
+# endTimer
+# exitLog ${JOB_OK}

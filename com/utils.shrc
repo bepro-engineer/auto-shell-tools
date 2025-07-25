@@ -1,0 +1,658 @@
+# Common Utilities resource file
+#_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+#
+# logger.sh ver.1.0.0 2025.01.24
+#
+# Usage:
+#     Utils.shrc
+#
+# Description:
+#     各種スクリプトより呼び出される共通機能を提供する。
+#
+# 設計書
+#     none
+#
+#_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+# ＜変更履歴＞
+# Ver. 変更管理No. 日付        更新者       変更内容
+# 1.0  PR-0001    2025/01/16 Bepro       新規作成
+#_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+
+# --------------------------------------------------
+# Release the acquired lock
+# --------------------------------------------------
+# Purpose:
+#   Removes the lock file to allow other instances to run.
+# Arguments:
+#   None
+# Returns:
+#   None
+# Notes:
+#   - This function should be called before exiting the script.
+#   - It verifies the lock file exists before removing.
+# --------------------------------------------------
+releaseLock() {
+  if [ -n "$LOCK_FILE" ]; then
+    locker=$(cat "$LOCK_FILE" 2>/dev/null)
+    
+    if [ "$locker" = "$$" ]; then
+      rm -f "$LOCK_FILE"
+      logOut "INFO" "Lock released: [$LOCK_FILE]"
+    else
+      logOut "WARN" "Lock file exists, but owned by PID [$locker], not [$$]."
+      logOut "WARN" "Lock file [$LOCK_FILE] is left untouched."
+    fi
+  fi
+}
+
+# --------------------------------------------------
+# Acquire process lock using a lock file
+# --------------------------------------------------
+# Purpose:
+#   Prevent multiple instances of the script from running simultaneously.
+# Arguments:
+#   None
+# Returns:
+#   0: Success (lock acquired)
+#   !0: Failure (another instance is already running)
+# Notes:
+#   - Uses a lock file instead of a directory.
+#   - Relies on `flock` for safe locking.
+#   - Writes the process ID to the lock file.
+# --------------------------------------------------
+acquireLock() {
+  LOCK_FILE="${TMP_PATH}/${SCRIPT_NAME%.*}.lock"
+  exec 200>"$LOCK_FILE"  # File descriptor 200 をロックファイルに関連付け
+
+  # flock コマンドを使用してロックを試みる
+  if flock -n 200; then
+    echo $$ > "$LOCK_FILE"  # プロセスIDを書き込む
+    logOut "INFO" "Lock acquired on [$LOCK_FILE]."
+    export LOCK_FILE
+    return 0
+  else
+    logOut "ERROR" "Another instance is already running. Lock file [$LOCK_FILE] exists."
+    return 1
+  fi
+}
+
+# --------------------------------------------------
+# Set LANG environment variable to UTF-8 encoding
+# --------------------------------------------------
+# Purpose:
+#   Configures the LANG environment variable for UTF-8 encoding
+#   based on the operating system. This ensures compatibility
+#   with applications and scripts requiring UTF-8.
+# Arguments:
+#   None
+# Returns:
+#   None
+# Notes:
+#   - For AIX: LANG is set to "JA_JP"
+#   - For Linux/FreeBSD: LANG is set to "ja_JP.UTF-8"
+#   - For unsupported OS: LANG defaults to "C"
+#   - Ensure the specified locale is installed on the system.
+# --------------------------------------------------
+setUTF8() {
+  case $(uname -s) in
+    AIX)           LANG=JA_JP ;;
+    Linux|FreeBSD) LANG=ja_JP.UTF-8 ;;
+    *)             LANG=C ;;
+  esac
+  export LANG
+  logOut "INFO" "LANG set to ${LANG} based on operating system."
+}
+
+# --------------------------------------------------
+# Set LANG environment variable to SJIS encoding
+# --------------------------------------------------
+# Purpose:
+#   Configures the LANG environment variable for SJIS encoding
+#   based on the operating system. This ensures compatibility
+#   with software or scripts requiring SJIS encoding.
+# Arguments:
+#   None
+# Returns:
+#   None
+# Notes:
+#   - For AIX: LANG is set to "Ja_JP"
+#   - For Linux: LANG is set to "ja_JP.sjis"
+#   - For FreeBSD: LANG is set to "ja_JP.SJIS"
+#   - For unsupported OS: LANG defaults to "C"
+# --------------------------------------------------
+setSJIS() {
+  case $(uname -s) in
+    AIX)     LANG=Ja_JP ;;
+    Linux)   LANG=ja_JP.sjis ;;
+    FreeBSD) LANG=ja_JP.SJIS ;;
+    *)       LANG=C ;;
+  esac
+  export LANG
+  logOut "INFO" "LANG set to ${LANG} based on operating system."
+}
+
+# --------------------------------------------------
+# Set LANG
+# --------------------------------------------------
+# Purpose:
+#   Sets the language environment variable (LANG).
+# Arguments:
+#   $1: The LANG value (default: C)
+# Returns:
+#   None
+# Notes:
+#   - Supports UTF-8, Shift-JIS, and C/POSIX locales.
+#   - Logs the LANG setting for debugging.
+# --------------------------------------------------
+setLANG() {
+  case "$1" in
+    UTF-8|utf-8|UTF8|utf8|UTF) LANG="en_US.UTF-8" ;;
+    SJIS|sjis|Shift-JIS) LANG="ja_JP.SJIS" ;;
+    C|POSIX) LANG="C" ;;
+    *) LANG="C" ;;
+  esac
+  export LANG
+  logOut "INFO" "LANG has been set to [$LANG]"
+}
+
+# --------------------------------------------------
+# Ensure the script runs as a specific user
+# --------------------------------------------------
+# Purpose:
+#   Ensures the script is executed as a specific user.
+#   If the current user is not the specified user, the script
+#   switches to the target user and re-executes itself.
+# Arguments:
+#   param1: Target user (default: root)
+#   param2-: Command line arguments to pass to the script
+# Returns:
+#   None (the script exits upon switching users or continues execution)
+# Notes:
+#   - Uses `sudo` to switch users instead of `su`.
+#   - If the specified user does not exist, the script aborts.
+# --------------------------------------------------
+runAs() {
+  local target_user=${1:-"root"}  # デフォルトは root
+  shift
+  local script_path
+
+  # 現在のユーザーの取得
+  local current_user
+  current_user=$(id -un)
+
+  # ユーザーの存在確認（getent passwd を使用）
+  if ! getent passwd "$target_user" > /dev/null; then
+    abort "User [$target_user] does not exist on this system."
+  fi
+
+  # 絶対パスを取得
+  script_path=$(realpath "$0")
+
+  # 実行ユーザーが異なれば sudo で再実行
+  if [ "$current_user" != "$target_user" ]; then
+    logOut "INFO" "Switching to user [$target_user] to execute [$script_path]"
+    exec sudo -u "$target_user" -- "$script_path" "$@"
+  fi
+
+  logOut "INFO" "Executing as user [$current_user]"
+}
+
+# --------------------------------------------------
+# Ensure the script runs as root
+# --------------------------------------------------
+# Purpose:
+#   Ensures the script is executed with root privileges.
+#   If not, it either aborts with an error or re-executes with sudo.
+# Arguments:
+#   None
+# Returns:
+#   None (exits or re-executes the script as root)
+# Notes:
+#   - Automatically retries with 'sudo' if not root.
+#   - This enhances usability while maintaining security.
+# --------------------------------------------------
+runAsRoot() {
+  local uid
+  uid=$(id -u)
+  if [ "$uid" -ne 0 ]; then
+    logOut "WARN" "Permission denied. Re-executing as root..."
+    exec sudo "$0" "$@"
+  fi
+}
+
+# --------------------------------------------------
+# Abort script execution with an error message.
+# --------------------------------------------------
+# Purpose:
+#   Logs an abort message and terminates the script with exit code 1.
+# Arguments:
+#   param1-: Error message to log.
+#            Example: "Critical failure in configuration loading."
+# Returns:
+#   None (terminates script with exit code 1)
+# Notes:
+#   - All output is sent to standard error (stderr).
+#   - Includes stack trace information for easier debugging.
+# --------------------------------------------------
+abort() {
+  local caller_info log_msg
+  caller_info=$(caller 0 2>/dev/null)  # どこで呼ばれたか取得
+  
+  log_msg="ABORT [$caller_info]: $*"  # `formatLog` の代わりに直接メッセージ生成
+  echo "$log_msg" 1>&2  # stderr にログ出力
+
+  sync  # ログを確実にディスクに書き込む
+  exit 1  # スクリプトを異常終了
+}
+
+# ------------------------------------------------------------
+# Obtain the MD5 hash value of a file.
+# ------------------------------------------------------------
+# Purpose:
+#   Computes and returns the MD5 hash value of the specified file.
+# Arguments:
+#   $1: Path to the file (absolute or relative)
+# Returns:
+#   MD5 hash value (printed to stdout)
+# Notes:
+#   - If the file does not exist or is not accessible, the function
+#     logs an error and returns 1.
+#   - Compatible with both Linux (`md5sum`) and macOS (`md5`).
+# ------------------------------------------------------------
+getMd5Sum() {
+  local file="$1"
+
+  # Check if the file path is provided
+  if [ -z "$file" ]; then
+    logOut "ERROR" "No file specified for MD5 calculation."
+    return 1
+  fi
+
+  # Check if the file exists and is readable
+  if [ ! -f "$file" ]; then
+    logOut "ERROR" "File not found or not accessible: $file"
+    return 1
+  fi
+
+  # Determine the correct MD5 command based on OS
+  if command -v md5sum > /dev/null 2>&1; then
+    md5sum "$file" | awk '{print $1}'
+  elif command -v md5 > /dev/null 2>&1; then
+    md5 -q "$file"
+  else
+    logOut "ERROR" "No suitable MD5 command found on this system."
+    return 1
+  fi
+}
+
+# ------------------------------------------------------------
+# Check if a process with the given name is running.
+# ------------------------------------------------------------
+# Purpose:
+#   Determines whether a process matching the given keyword is currently active.
+# Arguments:
+#   $1: The keyword to search for in the process list (e.g. "chronyd")
+# Returns:
+#   0: The process is running
+#   1: The process is not running
+# Notes:
+#   - This function uses `ps` and `grep` to search for the process.
+#   - It excludes lines that match `grep` itself and the current script name.
+#   - Ensure $SCRIPT_NAME is defined in the calling context.
+#   - May overmatch if $1 is a partial string (e.g. "chrony" matches "chronyc").
+# ------------------------------------------------------------
+isProcessAlive() {
+  cnt=$(ps auxw | grep "$1" | grep -v grep | grep -v "$SCRIPT_NAME" | wc -l)
+  if [ "$cnt" -eq 0 ]; then
+    return 1
+  fi
+  return 0
+}
+
+# ------------------------------------------------------------
+# Count the number of running processes matching a pattern.
+# ------------------------------------------------------------
+# Purpose:
+#   Counts the number of running processes that match the specified pattern.
+# Arguments:
+#   $1: Pattern to search for (e.g., process name or part of a command line)
+# Returns:
+#   Process count (printed to stdout)
+# Notes:
+#   - Excludes the current script and the `grep` commands themselves from the count.
+#   - Ensure that the pattern does not unintentionally match unrelated processes.
+# ------------------------------------------------------------
+getProcessCount() {
+  local pattern="$1"
+
+  # Check if the pattern is provided
+  if [ -z "$pattern" ]; then
+    echo "0"
+    return
+  fi
+
+  # Count matching processes, excluding this script and grep itself
+  local count
+  count=$(ps auxw | grep -F "$pattern" | grep -v "grep" | grep -v "$SCRIPT_NAME" | wc -l)
+  
+  echo "$count"
+}
+
+# --------------------------------------------------
+# Check if the value contains only alphanumeric characters.
+# --------------------------------------------------
+# Purpose:
+#   Determines whether a given value consists solely of alphanumeric characters.
+# Arguments:
+#   $1: Value to check
+# Returns:
+#   0: Alphanumeric  1: Not Alphanumeric
+# Notes:
+#   - Uses `sed` to remove non-alphanumeric characters and compares with original value.
+#   - Does not rely on external tools other than `sed` for matching.
+# --------------------------------------------------
+isAlphaNum() {
+  val="$(echo $1 | sed -e 's/[^[:alnum:]]//g')"
+
+  if [ "$val" != "$1" ]; then
+    return 1  # Not Alphanumeric
+  fi
+  return 0  # Alphanumeric
+}
+
+# ------------------------------------------------------------
+# Check if the given value is numeric.
+# ------------------------------------------------------------
+# Purpose:
+#   Determines whether the provided value is a valid numeric value.
+# Arguments:
+#   $1: The value to check (string or number)
+# Returns:
+#   0: The value is numeric (integer)
+#   1: The value is not numeric
+# Notes:
+#   - A numeric value is defined as an integer (positive or negative).
+#   - This function does not handle floating-point numbers or other non-integer values.
+#   - Leading or trailing spaces are not allowed.
+#   - Uses `expr` to check if the value is a valid integer.
+# ------------------------------------------------------------
+isNumeric() {
+  expr "$1" + 1 >/dev/null 2>&1
+  if [ $? -ge 2 ]; then
+    return 1
+  fi
+  return 0
+}
+
+
+# ------------------------------------------------------------
+# Check if a specified port is in LISTEN state.
+# ------------------------------------------------------------
+# Purpose:
+#   Verifies whether the specified port is actively listening
+#   on the system.
+# Arguments:
+#   $1: Port number (e.g., 80, 443)
+# Returns:
+#   0: The port is listening
+#   1: The port is not listening
+# Notes:
+#   - This function uses the `netstat` command to check the port state.
+#   - Ensure that the `netstat` command is available in your environment.
+#   - Invalid or empty input will cause the function to return 1.
+# ------------------------------------------------------------
+isPortAlive() {
+  local port="$1"
+
+  # Validate input
+  if [[ -z "$port" || ! "$port" =~ ^[0-9]+$ ]]; then
+    logOut "ERROR" "Invalid port number: $port"
+    return 1
+  fi
+
+  # Check if the port is in LISTEN state
+  local count
+  count=$(netstat -tan 2>/dev/null | grep ":$port" | grep -w "LISTEN" | wc -l)
+
+  if [ "$count" -eq 0 ]; then
+    return 1  # Port is not listening
+  fi
+  return 0  # Port is listening
+}
+
+# ------------------------------------------------------------
+# Check if the specified keyword is present in the process table.
+# ------------------------------------------------------------
+# Purpose:
+#   Verifies whether the given keyword is present in the system's
+#   process table.
+# Arguments:
+#   $1: Keyword to search for (e.g., process name or part of a command line)
+# Returns:
+#   0: The keyword is found in the process table
+#   1: The keyword is not found in the process table
+# Notes:
+#   - Excludes the `grep` process itself from the search.
+#   - If no keyword is provided, the function logs an error and returns 1.
+#   - Ensure that the keyword does not unintentionally match unrelated processes.
+# ------------------------------------------------------------
+isKeywordInProcess() {
+  local keyword="$1"
+
+  # Validate input
+  if [ -z "$keyword" ]; then
+    logOut "ERROR" "No keyword specified for process search."
+    return 1
+  fi
+
+  # Check for the keyword in the process table
+  if ps auxw | grep -F "$keyword" | grep -v grep >/dev/null; then
+    return 0  # Keyword found
+  else
+    return 1  # Keyword not found
+  fi
+}
+
+# ------------------------------------------------------------
+# Check the process count against a specified range.
+# ------------------------------------------------------------
+# Purpose:
+#   Verifies whether the number of running processes for the
+#   specified process name is within the given range.
+# Arguments:
+#   $1: process_name (string) - The name of the process to check.
+#   $2: min_count (integer) - Minimum allowed process count.
+#   $3: max_count (integer) - Maximum allowed process count.
+# Returns:
+#   0: Process count is within range.
+#   1: Process count is below the minimum.
+#   2: Process count exceeds the maximum.
+#   3: Invalid argument (e.g., min_count > max_count or invalid process count).
+# Notes:
+#   - For single process requirements, set min_count and max_count to 1.
+#   - Logs an error message if the process count is invalid or if the arguments are incorrect.
+# ------------------------------------------------------------
+checkProcessCount() {
+    local process_name="$1"
+    local min_count="$2"
+    local max_count="$3"
+    local process_count
+
+    # プロセス数を数値として取得
+    process_count=$(ps aux | grep "$process_name" | grep -v grep | wc -l)
+
+    # プロセス数が空でないことを確認
+    if [ -z "$process_count" ] || ! [[ "$process_count" =~ ^[0-9]+$ ]]; then
+        echo "[ ERROR ] Invalid process count: $process_count"
+        return 3  # 無効な値が返された場合
+    fi
+
+    # 引数のチェック: min_count が max_count より大きい場合、エラーを返す
+    if [ "$min_count" -gt "$max_count" ]; then
+        return 3  # 無効な引数
+    fi
+
+    # プロセス数が範囲内か確認
+    if [ "$process_count" -ge "$min_count" ] && [ "$process_count" -le "$max_count" ]; then
+        return 0  # プロセス数は範囲内
+    elif [ "$process_count" -lt "$min_count" ]; then
+        return 1  # プロセス数が最小値より少ない
+    elif [ "$process_count" -gt "$max_count" ]; then
+        return 2  # プロセス数が最大値を超えている
+    fi
+}
+
+# ------------------------------------------------------------
+# Get the current date in a specific format.
+# ------------------------------------------------------------
+# Purpose:
+#   Returns the current date in the format YYYY-MM-DD.
+# Arguments:
+#   None
+# Returns:
+#   Current date (printed to stdout).
+# ------------------------------------------------------------
+getCurrentDate() {
+    echo "$(date +"%Y-%m-%d" | tr -d '\r')"
+}
+
+# ------------------------------------------------------------
+# Get the current timestamp in a specific format.
+# ------------------------------------------------------------
+# Purpose:
+#   Returns the current date and time in the format YYYY-MM-DD HH:MM:SS.
+# Arguments:
+#   None
+# Returns:
+#   Current timestamp (printed to stdout).
+# ------------------------------------------------------------
+getCurrentTimestamp() {
+  # シングルクォートを含まない形式で日付を取得
+  echo "$(date +"%Y-%m-%d_%H-%M-%S")"
+}
+
+# ------------------------------------------------------------
+# Format a given timestamp or current time.
+# ------------------------------------------------------------
+# Purpose:
+#   Converts a given timestamp into a specified format.
+# Arguments:
+#   $1: Format (e.g., "%Y-%m-%d", "%H:%M:%S").
+# Returns:
+#   Formatted timestamp (printed to stdout).
+# ------------------------------------------------------------
+formatDate() {
+  local format="${1:-"%Y-%m-%d"}"
+  date +"$format"
+}
+
+# ------------------------------------------------------------
+# Create a backup of a specified file.
+# ------------------------------------------------------------
+# Purpose:
+#   Copies the file to a backup location with a timestamp appended.
+# Arguments:
+#   $1: File to back up.
+# Returns:
+#   None.
+# Notes:
+#   - Logs an error if the file does not exist or cannot be backed up.
+# ------------------------------------------------------------
+backupFile() {
+  local file="$1"
+  if [ ! -f "$file" ]; then
+    logOut "ERROR" "File not found: $file"
+    return 1
+  fi
+
+  local timestamp
+  timestamp=$(getCurrentTimestamp)  # 共通関数でタイムスタンプ取得
+
+  # バックアップファイル名を生成
+  local backup="${file}_${timestamp}.bak"
+  
+  # バックアップを作成
+  cp "$file" "$backup" && logOut "INFO" "Backup created: $backup" || logOut "ERROR" "Failed to create backup: $file"
+}
+
+# ------------------------------------------------------------
+# Delete files older than a specified number of days.
+# ------------------------------------------------------------
+# Purpose:
+#   Cleans up files in a directory that exceed a retention period.
+# Arguments:
+#   $1: Directory to clean up.
+#   $2: Retention period in days.
+# Returns:
+#   None.
+# Notes:
+#   - Logs the result of the cleanup operation.
+# ------------------------------------------------------------
+deleteOldFiles() {
+  local dir="$1"
+  local days="$2"
+
+  if [ ! -d "$dir" ]; then
+    logOut "ERROR" "Directory not found: $dir"
+    return 1
+  fi
+
+  find "$dir" -type f -mtime +"$days" -exec rm -f {} \; && logOut "INFO" "Old files in $dir older than $days days deleted." || logOut "ERROR" "Failed to delete files in $dir."
+}
+
+# ------------------------------------------------------------
+# Check if a host is reachable.
+# ------------------------------------------------------------
+# Purpose:
+#   Verifies whether the specified host is reachable via ping.
+# Arguments:
+#   $1: Hostname or IP address.
+# Returns:
+#   0: Host is reachable.
+#   1: Host is not reachable.
+# ------------------------------------------------------------
+isHostAlive() {
+  local host="$1"
+  if ping -c 1 -W 1 "$host" >/dev/null 2>&1; then
+    return 0
+  else
+    logOut "WARN" "Host $host is not reachable."
+    return 1
+  fi
+}
+
+# ------------------------------------------------------------
+# Prompt the user for confirmation.
+# ------------------------------------------------------------
+# Purpose:
+#   Asks the user for confirmation before proceeding with a critical operation.
+# Arguments:
+#   $1: Message to display (e.g., "Are you sure?")
+# Returns:
+#   0: User confirmed.
+#   1: User declined.
+# ------------------------------------------------------------
+confirmAction() {
+  local message="${1:-"Are you sure? [y/N]"}"
+  read -r -p "$message " response
+  case "$response" in
+    [yY][eE][sS]|[yY]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ------------------------------------------------------------
+# Check if a command exists in the environment.
+# ------------------------------------------------------------
+# Purpose:
+#   Ensures that a required command is available before executing the script.
+# Arguments:
+#   $1: Command name to check (e.g., "curl").
+# Returns:
+#   0: Command exists.
+#   1: Command does not exist.
+# ------------------------------------------------------------
+checkCommandExists() {
+  command -v "$1" >/dev/null 2>&1  # コマンドが存在するか確認
+  return $?  # 成功なら0、失敗なら1を返す
+}

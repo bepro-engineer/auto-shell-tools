@@ -1,0 +1,31 @@
+# バックアップファイル
+*~
+*.bak
+*.swp
+*.tmp
+*.old
+
+# 実行時に生成されるログや一時ファイル
+log/
+tmp/
+*.log
+*.pid
+*.status
+
+# .DS_Store や Thumbs.db（Mac/Windows用）
+.DS_Store
+Thumbs.db
+
+# バイナリやアーカイブ
+*.tar
+*.tar.gz
+*.zip
+*.gz
+*.xz
+
+# 秘密ファイル
+.env
+*.conf
+*.key
+*.crt
+
