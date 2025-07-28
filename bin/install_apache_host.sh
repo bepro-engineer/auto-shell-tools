@@ -517,7 +517,7 @@ var=$(cat << EOS
     </Location>
 
     <Location /${VHOST2}/>
-        ProxyPass ajp://localhost:8009/${VHOST1}/
+        ProxyPass ajp://localhost:8009/${VHOST2}/
     </Location>
 </VirtualHost>
 EOS
