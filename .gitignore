@@ -24,7 +24,7 @@ Thumbs.db
 *.xz
 
 # 秘密ファイル
-.env
+#.env
 *.conf
 *.key
 *.crt
