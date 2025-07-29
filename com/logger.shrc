@@ -17,8 +17,10 @@
 # ＜変更履歴＞
 # Ver. 変更管理No. 日付        更新者       変更内容
 # 1.0  PR-0001    2025/01/16 Bepro       新規作成
+# 1.1  〇〇〇〇〇  2025/07/29  Bepro       シスログ出力メソッド追加
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
-
+# 共通クラスの読み込み
+. $(dirname $0)/../com/utils.shrc
 # ------------------------------------------------------------
 # ログレベルの優先度定義
 # ------------------------------------------------------------
@@ -29,13 +31,12 @@ declare -A LOG_LEVEL_PRIORITY=(
     ['ERROR']='3' 
   )
 
-
 # ------------------------------------------------------------
 # グローバル変数
 # ------------------------------------------------------------
 DEFAULT_LOG_MODE="CONSOLE"  # ログの出力モード (FILE, CONSOLE, SYSLOG)
 SCRIPT_NAME=`basename $0`
-BASE_PATH=${BASE_PATH:-"/work/scripts/"}
+BASE_PATH=${BASE_PATH:-"/home/bepro/projects/scripts/"}
 COM_PATH=${BASE_PATH}/com
 ETC_PATH=${BASE_PATH}/etc
 LOG_PATH=${BASE_PATH}/log
@@ -43,7 +44,7 @@ TMP_PATH=${BASE_PATH}/tmp
 REP_PATH=${BASE_PATH}/rep
 SCRIPT_NAME=$(basename "$0")
 INFRA_MSG_CONF="${ETC_PATH}/infraMessage.cfg"
-LOG_FORMAT="%s [ %-5s] %s\n"  # デフォルトのログフォーマット
+LOG_FORMAT="%s [ %s ] [ %s ] %s"  # デフォルトのログフォーマット
 LOG_LEVEL=${LOG_LEVEL:-"DEBUG"}  # デフォルトのログレベル
 TIMER_START=0
 JOB_OK=0
@@ -51,10 +52,12 @@ JOB_WR=1
 JOB_ER=2
 export INFRA_MSG_CONF
 export SCRIPT_NAME
+hostname=$(hostname -s)
 
 # ------------------------------------------------------------
 # 関数定義
 # ------------------------------------------------------------
+scope="func"
 
 # 区切り線の表示
 divider() {
@@ -95,7 +98,7 @@ logOut() {
 
   if (( LOG_LEVEL_PRIORITY["${level}"] >= LOG_LEVEL_PRIORITY["${LOG_LEVEL}"] )); then
     local formatted_message
-    formatted_message=$(printf "${LOG_FORMAT}" "$(date +"%Y-%m-%d %H:%M:%S")" "${level}" "${message}")
+    formatted_message=$(printf "${LOG_FORMAT}" "$(date +"%Y-%m-%d %H:%M:%S")" "${level}" "${scope}" "${message}")
 
     case "${DEFAULT_LOG_MODE}" in
       "FILE") echo "${formatted_message}" >> "${LOG_PATH}/${SCRIPT_NAME%%.*}.log" ;;
@@ -156,6 +159,65 @@ parseArgs() {
         ;;
     esac
   done
+}
+
+# --------------------------------------------------
+# Level conversion for outputting the log to the console.
+# --------------------------------------------------
+# param1  facility.serverity
+# param2  messages
+# return  N/A
+# --------------------------------------------------
+cnvServerityToLevel() {
+  local level=$(lower "${1##*.}")
+  local msg=$(eval echo "$2")
+
+  case "$level" in
+    emerg|panic|crit|error|err ) logOut "ERROR" "$msg" ;;
+    alert|warn|notice )          logOut "WARN"  "$msg" ;;
+    info )                       logOut "INFO"  "$msg" ;;
+    debug )                      logOut "DEBUG" "$msg" ;;
+    trace|* )                    logOut "ERROR" "$msg" ;;  # 未定義レベルは ERROR 扱い
+  esac
+}
+
+# --------------------------------------------------
+# Get the message from an external file.
+# --------------------------------------------------
+# param1  messages id
+# param2  facility.serverity
+# return  N/A
+# --------------------------------------------------
+getSysMsg() {
+  awk -v id="$1" -v field="$2" '$1 == id && $2 == field { $1=""; $2=""; print substr($0, 3); exit }' "$msg_conf"
+}
+
+# --------------------------------------------------
+# Output the system log.
+# --------------------------------------------------
+# param1  messages id
+# return  N/A
+# --------------------------------------------------
+logSystem() {
+    msg_conf="$ETC_PATH/$hostname/message.conf"
+
+    if [ ! -f "$msg_conf" ]; then
+        logOut "ERROR" "Configuration file can not be found [ $msg_conf ]."
+        exitLog 2
+    fi
+
+    fac_serv=$(awk -v id="$1" '$1 == id { print $2; exit }' "$msg_conf")
+    raw_msg=$(awk -v id="$1" -v fac="$fac_serv" '$1 == id && $2 == fac { $1=""; $2=""; print substr($0, 3); exit }' "$msg_conf")
+
+    msg=$(eval echo "$raw_msg")
+
+    cnvServerityToLevel "$fac_serv" "$msg"
+
+    if [ -n "$fac_serv" ]; then
+        logger -t "$SCRIPT_NAME" -p "$fac_serv" "$msg"
+    else
+        logOut "WARNING" "Logger priority is missing for id [$1]. Message not sent to syslog."
+    fi
 }
 
 # ------------------------------------------------------------

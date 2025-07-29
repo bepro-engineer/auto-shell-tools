@@ -22,8 +22,8 @@
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 
 # 共通クラスの読み込み
-. $(dirname $0)/../com/logger.shrc
-. $(dirname $0)/../com/utils.shrc
+. "$(dirname "$0")/../com/utils.shrc"
+. "$(dirname "$0")/../com/logger.shrc"
 
 # ========================================
 # 実行ユーザー確認（root限定）
@@ -67,6 +67,7 @@ usage() {
 checkArg() {
     if [ -z "$backup_dir" ]; then
         logOut "ERROR" "${err_msg01}"
+        usage
         exitLog ${JOB_ER}
     fi
     if [ ! -d "$backup_dir" ]; then
@@ -165,4 +166,4 @@ cleanOldBackups
 # post-process
 # ----------------------------------------------------------
 scope="post"
-exitLog $JOB_OK
+exitLog ${JOB_OK}

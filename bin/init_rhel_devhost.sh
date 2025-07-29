@@ -17,8 +17,8 @@
 # ------------------------------------------------------------------
 # 初期処理
 # ------------------------------------------------------------------
-. "$(dirname "$0")/../com/logger.shrc"
 . "$(dirname "$0")/../com/utils.shrc"
+. "$(dirname "$0")/../com/logger.shrc"
 startLog                                 # ログ出力を初期化
 startTimer                               # 実行時間計測用タイマー開始
 setLANG utf-8
@@ -31,9 +31,18 @@ DEFAULT_LOG_MODE="CONSOLE"       				# ログ出力先（CONSOLEまたはFILE）
 ETC_PATH="${BASE_PATH}/etc"      				# 設定ファイルを保存するディレクトリ
 JOB_OK=0                         				# 正常終了コード
 
+# ========================================
+# 定数定義
+# ========================================
+readonly JOB_OK=0
+readonly JOB_WR=1
+readonly JOB_ER=2
+
 # ------------------------------------------------------------------
 # variables
 # ------------------------------------------------------------------
+scope="var"
+
 hostname="dev01"
 date=$(date "+%Y-%m-%d")
 hostname_short=$(hostname -s)
@@ -48,6 +57,8 @@ selinux_conf="/etc/selinux/config"
 # ------------------------------------------------------------------
 # functions
 # ------------------------------------------------------------------
+scope="func"
+
 line () {
 	echo ""
 	echo "    ------------"
@@ -69,6 +80,8 @@ disable_selinux () {
 # ------------------------------------------------------------------
 # pre-process
 # ------------------------------------------------------------------
+scope="pre"
+
 setLogMode ${LOG_MODE:-overwrite}
 startLog
 trap "terminate" 0 1 2 3 15
@@ -76,13 +89,14 @@ trap "terminate" 0 1 2 3 15
 # ------------------------------------------------------------------
 # main-process
 # ------------------------------------------------------------------
+scope="main"
 
 # 1. SELinux 無効化
 line "1. SELinux を無効化します"
 disable_selinux
 if [ $? -ne 0 ]; then
 	logOut "ERROR" "1. SELinux を無効化に失敗しました。"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 2. タイムゾーン設定（Asia/Tokyo）
@@ -91,7 +105,7 @@ timedatectl set-timezone Asia/Tokyo
 timedatectl status
 if [ $? -ne 0 ]; then
 	logOut "ERROR"  "2. タイムゾーン設定に失敗しました"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 3. ロケール設定（ja_JP.UTF-8）
@@ -101,7 +115,7 @@ localectl set-locale LANG=ja_JP.UTF-8
 localectl status
 if [ $? -ne 0 ]; then
 	logOut "ERROR"  "3. ロケール設定に失敗しました"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 4. ホスト名設定
@@ -110,7 +124,7 @@ hostnamectl set-hostname "${hostname}"
 hostnamectl status
 if [ $? -ne 0 ]; then
 	logOut "ERROR"  "4. ホスト名設定に失敗しました"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 5. ファイアウォール設定
@@ -129,7 +143,7 @@ sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 systemctl restart sshd
 if [ $? -ne 0 ]; then
 	logOut "ERROR"  "6. rootログインを禁止設定に失敗しました"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 7. IPv6 を無効化設定
@@ -154,14 +168,14 @@ line "9. パッケージメタデータを事前にキャッシュします"
 dnf makecache --refresh
 if [ $? -ne 0 ]; then
 	logOut "ERROR"  "9. パッケージメタデータの事前キャッシュに失敗しました"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 10. 必要パッケージのインストール
 line "10. 開発用パッケージのインストール"
 dnf -y install vim unzip tcpdump net-tools bind-utils curl git rsync lsof zstd
 	logOut "ERROR"  "10. 必要パッケージのインストール設定に失敗しました"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 11. chronyd の設定
@@ -188,7 +202,7 @@ edit_limits_conf
 logOut "limits.conf 編集完了"
 if [ $? -ne 0 ]; then
 	logOut "ERROR"  "12. limits.conf 設定に失敗しました"
-	exitLog 2
+	exitLog ${JOB_ER}
 fi
 
 # 13. ファイルディスクリプタ上限緩和
@@ -233,6 +247,8 @@ EOS
 # ------------------------------------------------------------------
 # post-process
 # ------------------------------------------------------------------
+scope="post"
+
 endTimer                                  # タイマーを終了
 exitLog $rc
 

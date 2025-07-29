@@ -23,9 +23,16 @@
 # ------------------------------------------------------------------
 # 初期処理
 # ------------------------------------------------------------------
-. "$(dirname "$0")/../com/logger.shrc"
 . "$(dirname "$0")/../com/utils.shrc"
+. "$(dirname "$0")/../com/logger.shrc"
 setLANG     utf-8
+
+# ========================================
+# 定数定義
+# ========================================
+readonly JOB_OK=0
+readonly JOB_WR=1
+readonly JOB_ER=2
 
 # ------------------------------------------------------------------
 # variables （変数の宣言領域）
@@ -58,21 +65,21 @@ terminate() {
 checkArgs() {
     if [ -z "$1" ] || [ -z "$2" ]; then
         logOut "ERROR" "Incorrect number of arguments."
-        exitLog 2
+        exitLog ${JOB_ER}
     fi
     logOut "DEBUG" "arg1 is [ $1 ]."
     if [ ! -e "$1" ]; then
         logOut "ERROR" "Not found such file or directory [ $1 ]."
-        exitLog 2
+        exitLog ${JOB_ER}
     fi
     logOut "DEBUG" "arg2 is [ $2 ]."
     if echo "$2" | grep -q '/$'; then
         logOut "ERROR" "[ $2 ] directory is set as an output file."
-        exitLog 2
+        exitLog ${JOB_ER}
     fi
     if [ ! -e "${2%/*}" ]; then
         logOut "ERROR" "Not found such file or directory [ ${2%/*} ]."
-        exitLog 2
+        exitLog ${JOB_ER}
     fi
     if [ -f "$2" ]; then
         rm -rf "$2"
@@ -82,12 +89,12 @@ checkArgs() {
     logOut "DEBUG" "arg3 is [ $3 ]."
     if echo "$3" | grep -Eq "[^01]"; then
         logOut "ERROR" "An unexpected value [ $3 ]."
-        exitLog 2
+        exitLog ${JOB_ER}
     fi
     # Check directory parent-child relationship.
     if [ "$3" -eq 1 ] && echo "$2" | grep -q "$1"; then
         logOut "ERROR" "Correlation error of a parameter."
-        exitLog 2
+        exitLog ${JOB_ER}
     fi
 }
 
@@ -131,7 +138,7 @@ while getopts s:d:m: opts; do
         *)
             logOut "ERROR" "Illegal option."
             usage
-            exitLog 2
+            exitLog ${JOB_ER}
             ;;
     esac
 done
@@ -189,7 +196,7 @@ if [ "$tar_rc" -eq 0 ] && [ "$zstd_rc" -eq 0 ]; then
 else
     logOut "ERROR" "Failed to compression [ $dst_file ]."
     rm -f "$dst_file"
-    exitLog 2
+    exitLog ${JOB_ER}
 fi
 
 # モードに応じて元ファイル削除
@@ -201,4 +208,4 @@ fi
 # post-process
 # ----------------------------------------------------------
 step="post"
-exitLog 0
+exitLog ${JOB_OK}

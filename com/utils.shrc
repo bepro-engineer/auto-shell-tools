@@ -16,6 +16,7 @@
 # ＜変更履歴＞
 # Ver. 変更管理No. 日付        更新者       変更内容
 # 1.0  PR-0001    2025/01/16 Bepro       新規作成
+# 1.1  〇〇〇〇〇  2025/07/29  Bepro       CPU使用率取得メソッド追加
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 
 # --------------------------------------------------
@@ -655,4 +656,30 @@ confirmAction() {
 checkCommandExists() {
   command -v "$1" >/dev/null 2>&1  # コマンドが存在するか確認
   return $?  # 成功なら0、失敗なら1を返す
+}
+
+# ------------------------------------------------------------------
+# Function name : getCpuUtilization
+# Summary       : Get current CPU utilization rate
+# Description   :
+#   Executes the `top` command once to capture current CPU usage.
+#   Calculates (100 - idle%) to derive the active usage percentage.
+#
+# Arguments     : None
+# Return value  : CPU usage rate as an integer (%)
+# Used in       : cpu_alert.sh
+# ------------------------------------------------------------------
+getCpuUtilization() {
+    top -bn1 | grep "Cpu(s)" | \
+        awk -F'id,' -v prefix="100 - " '{ split($1, vs, ","); v=vs[length(vs)]; sub("%", "", v); printf("%.0f", 100 - v) }'
+}
+
+# ------------------------------------------------------------------
+# Function name : lower
+# Summary       : Convert string to lowercase
+# Arguments     : $1 - Input string
+# Return value  : Lowercase string (via echo)
+# ------------------------------------------------------------------
+lower() {
+    echo "$1" | tr '[:upper:]' '[:lower:]'
 }

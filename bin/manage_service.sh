@@ -22,9 +22,16 @@
 # ------------------------------------------------------------------
 # 初期処理
 # ------------------------------------------------------------------
-. "$(dirname "$0")/../com/logger.shrc"
 . "$(dirname "$0")/../com/utils.shrc"
+. "$(dirname "$0")/../com/logger.shrc"
 setLANG     utf-8
+
+# ========================================
+# 定数定義
+# ========================================
+readonly JOB_OK=0
+readonly JOB_WR=1
+readonly JOB_ER=2
 
 # ------------------------------------------------------------------
 # variables （変数の宣言領域）
@@ -41,7 +48,7 @@ CMD=""
 scope="func"
 
 # 使い方表示
-showUsage() {
+usage() {
     cat << EOF
 --------------------------------------
 Usage:
@@ -49,15 +56,15 @@ Usage:
 
 Options:
   -s service_name : 対象の systemd サービス名
-  -c command      : 実行する操作（start|stop|restart|graceful|graceful-stop|status）
+  -c command      : Specify operation mode（start|stop|restart|graceful|graceful-stop|status）
 
 Commands:
-  start           - Start the service
-  stop            - Stop the service
-  restart         - Restart the service
-  graceful        - Reload the service (if supported)
-  graceful-stop   - Graceful stop (fallback to stop)
-  status          - Show service status
+  launch         - Launch the process
+  shutdown       - Terminate the process
+  cycle          - Restart it cleanly
+  reload         - Apply configuration changes (if applicable)
+  soft-stop      - Attempt soft stop (fallback: force stop)
+  inspect        - Display current operational status
 --------------------------------------
 Example:
   sh manage_service.sh -s httpd -c start
@@ -91,19 +98,19 @@ while getopts "s:c:" opt; do
     case "$opt" in
         s) SERVICE_NAME="$OPTARG" ;;
         c) CMD="$OPTARG" ;;
-        *) showUsage; exit 2 ;;
+        *) usage; exit 2 ;;
     esac
 done
 
 startLog
 logOut "INFO" "Args: [-s $SERVICE_NAME -c $CMD]"
-trap ":" 0 1 2 3 15
+trap ":" 1 2 3 15
 
 # 入力チェック
 if [ -z "$SERVICE_NAME" ] || [ -z "$CMD" ]; then
     logOut "ERROR" "引数が不足しています。"
-    showUsage
-    exitLog 2
+    usage
+    exitLog ${JOB_ER}
 fi
 
 # ------------------------------------------------------------------
@@ -145,8 +152,8 @@ case "$CMD" in
         ;;
     *)
         logOut "ERROR" "Invalid command: [$CMD]"
-        showUsage
-        exitLog 2
+        usage
+        exitLog ${JOB_ER}
         ;;
 esac
 
