@@ -98,7 +98,7 @@ while getopts "s:c:" opt; do
     case "$opt" in
         s) SERVICE_NAME="$OPTARG" ;;
         c) CMD="$OPTARG" ;;
-        *) usage; exit 2 ;;
+        *) usage; exit ${JOB_ER} ;;
     esac
 done
 

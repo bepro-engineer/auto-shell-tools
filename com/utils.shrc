@@ -683,3 +683,18 @@ getCpuUtilization() {
 lower() {
     echo "$1" | tr '[:upper:]' '[:lower:]'
 }
+
+# ------------------------------------------------------------------
+# Function name : getMemUtilization
+# Summary       : Get current Memory utilization rate
+# Description   :
+#   Executes the `free` command to get memory statistics.
+#   Calculates used memory as: (total - available) / total × 100
+#
+# Arguments     : None
+# Return value  : Memory usage rate as an integer (%)
+# Used in       : mem_alert.sh
+# ------------------------------------------------------------------
+getMemUtilization() {
+    free | awk '/Mem:/ { printf("%.0f", ( ($2 - $7) / $2 ) * 100 ) }'
+}

@@ -38,6 +38,13 @@ conf_path="$ETC_PATH/$host_id/cpu_threshold.conf"
 rep_path="$TMP_PATH/cpu_alert.rep"
 now_time=`date "+%Y-%m-%d %H:%M:%S"`
 
+# ========================================
+# 定数定義
+# ========================================
+readonly JOB_OK=0
+readonly JOB_WR=1
+readonly JOB_ER=2
+
 # ------------------------------------------------------------------
 # functions
 # ------------------------------------------------------------------
@@ -86,41 +93,44 @@ validateArgs $#
 scope="main"
 
 if [ $# -eq 0 ]; then
-    cpu_usage=`getCpuUtilization`
+    mem_usage=$(getMemUtilization)
 else
-    cpu_usage=$1
+    mem_usage=$1
     now_time=$2
 fi
 
-read threshold_count warn_limit critical_limit < <(grep -v '^\s*#' "$conf_path" | head -n 1 | awk '{gsub(/%/, "", $2); gsub(/%/, "", $3); print $1, $2, $3}')
+read threshold_count warn_limit critical_limit < <(
+    grep -v '^\s*#' "$conf_path" | head -n 1 | awk '{gsub(/%/, "", $2); gsub(/%/, "", $3); print $1, $2, $3}'
+)
 
-cpu_usage_int=`echo "$cpu_usage" | awk '{printf("%d", $1)}'`
+mem_usage_int=$(echo "$mem_usage" | awk '{printf("%d", $1)}')
 
 logOut "INFO" "Threshold(WARN): ${warn_limit} %"
-logOut "INFO" "Current Usage   : ${cpu_usage_int} %"
+logOut "INFO" "Current Usage   : ${mem_usage_int} %"
 logOut "DEBUG" "Execution Time  : ${now_time}"
 
-if [ "$cpu_usage_int" -ge "$warn_limit" ]; then
-    echo "${cpu_usage_int}% $now_time" >> "$rep_path"
-    logOut "WARN" "CPU usage exceeded: ${cpu_usage_int}%"
+if [ "$mem_usage_int" -ge "$warn_limit" ]; then
+    echo "${mem_usage_int}% $now_time" >> "$mem_record"
+    logOut "WARN" "Memory usage exceeded: ${mem_usage_int}%"
 else
-    if [ -s "$rep_path" ]; then
-        > "$rep_path"
-        logOut "INFO" "Reset alert history: $rep_path"
+    if [ -s "$mem_record" ]; then
+        > "$mem_record"
+        logOut "INFO" "Reset alert history: $mem_record"
     fi
     logOut "DEBUG" "Usage within limits."
 fi
 
-count_exceed=`wc -l < "$rep_path" | tr -d ' '`
+count_exceed=$(wc -l < "$mem_record" | tr -d ' ')
 logOut "INFO" "Exceed count: ${count_exceed}"
 
 if [ "$count_exceed" -ge "$threshold_count" ]; then
-    if [ "$cpu_usage_int" -ge "$critical_limit" ]; then
-        logSystem "21004"
+    if [ "$mem_usage_int" -ge "$critical_limit" ]; then
+        logSystem "21004"  # critical
     else
-        logSystem "11004"
+        logSystem "11004"  # warn
     fi
 fi
+
 
 # ------------------------------------------------------------------
 # post-process
