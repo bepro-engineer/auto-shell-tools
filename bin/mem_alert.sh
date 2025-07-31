@@ -6,6 +6,7 @@
 . "$(dirname "$0")/../com/utils.shrc"
 . "$(dirname "$0")/../com/logger.shrc"
 setLANG utf-8
+runAs root "$@"
 
 # ------------------------------------------------------------------
 # 変数宣言

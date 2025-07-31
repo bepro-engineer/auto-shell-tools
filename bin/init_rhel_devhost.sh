@@ -22,6 +22,7 @@
 startLog                                 # ログ出力を初期化
 startTimer                               # 実行時間計測用タイマー開始
 setLANG utf-8
+runAs root "$@"
 
 # ====== グローバル変数の設定 ======
 BASE_PATH="/home/bepro/projects/scripts"        # ベースディレクトリ（全体のルートパス）

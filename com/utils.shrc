@@ -1,7 +1,7 @@
 # Common Utilities resource file
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 #
-# logger.sh ver.1.0.0 2025.01.24
+# utils.sh ver.1.0.0 2025.01.24
 #
 # Usage:
 #     Utils.shrc
@@ -196,6 +196,22 @@ runAs() {
   fi
 
   logOut "INFO" "Executing as user [$current_user]"
+}
+
+# ------------------------------------------------------------------
+# Function Name : getMd5sum
+# Overview      : Retrieve the MD5 hash of a given file
+# Description   :
+#   Executes the md5sum command on the specified file and extracts
+#   only the first column (the hash value) from the output.
+#   Assumes the file existence check is handled by the caller.
+#
+# Arguments     : $1 = Path to the target file (absolute or relative)
+# Return Value  : MD5 hash string (32-character alphanumeric)
+# Used By       : Used for integrity verification in fileTransfer.sh etc.
+# ------------------------------------------------------------------
+getMd5sum() {
+    md5sum "$1" | awk '{print $1}'
 }
 
 # --------------------------------------------------
