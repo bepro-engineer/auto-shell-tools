@@ -150,21 +150,22 @@ loadThreshold
 scope="main"
 
 if [ "$type" = "cpu" ]; then
-    usage_val=$(getCpuUtilization)
+    usage_raw_val=$(getCpuUtilization)
 else
-    usage_val=$(getMemUtilization)
+    usage_raw_val=$(getMemUtilization)
 fi
 
-usage_int=$(echo "$usage_val" | awk '{printf("%d", $1)}')
+usage_val_int=$(echo "$usage_raw_val" | awk '{printf("%d", $1)}')
+threshold=$warn_limit
 
-logOut "INFO"  "Threshold(WARN): ${warn_limit} %"
-logOut "INFO"  "Current Usage   : ${usage_int} %"
-logOut "DEBUG" "Execution Time  : ${exec_time}"
+logOut "INFO"  "Threshold        : ${threshold} %"
+logOut "INFO"  "Current Usage    : ${usage_val_int} %"
+logOut "DEBUG" "Execution Time   : ${exec_time}"
 
-# 使用率が警告以上なら記録
-if [ "$usage_int" -ge "$warn_limit" ]; then
-    echo "${usage_int}% $exec_time" >> "$record_file"
-    logOut "WARN" "Usage exceeded: ${usage_int}%"
+# 使用率が閾値以上なら記録
+if [ "$usage_val_int" -ge "$threshold" ]; then
+    echo "${usage_val_int}% $exec_time" >> "$record_file"
+    logOut "WARN" "Usage exceeded: ${usage_val_int}%"
 else
     if [ -s "$record_file" ]; then
         > "$record_file"
@@ -175,14 +176,22 @@ fi
 
 # 超過カウント取得
 count_exceed=$(wc -l < "$record_file" | tr -d ' ')
+# 超過カウント取得
+count_exceed=$(wc -l < "$record_file" | tr -d ' ')
+
+logOut "DEBUG" "threshold_count=$threshold_count"
+logOut "DEBUG" "count_exceed=$count_exceed"
+logOut "DEBUG" "record_file content:"
+cat "$record_file" >&2
+
 logOut "INFO" "Exceed count: $count_exceed"
 
 # 致命的判定とログ出力（対象別）
 if [ "$count_exceed" -ge "$threshold_count" ]; then
     if [ "$type" = "cpu" ]; then
-        [ "$usage_int" -ge "$critical_limit" ] && logSystem "21004" || logSystem "11004"
+        [ "$usage_val_int" -ge "$critical_limit" ] && logSystem "21001" || logSystem "11001"
     else
-        [ "$usage_int" -ge "$critical_limit" ] && logSystem "21003" || logSystem "11003"
+        [ "$usage_val_int" -ge "$critical_limit" ] && logSystem "21002" || logSystem "11002"
     fi
 fi
 
