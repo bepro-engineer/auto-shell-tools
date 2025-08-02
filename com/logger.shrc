@@ -1,5 +1,4 @@
 #!/bin/bash
-# Common logger definition file
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 #
 # logger.sh ver.1.0.0 2025.01.24
@@ -17,7 +16,6 @@
 # ＜変更履歴＞
 # Ver. 変更管理No. 日付        更新者       変更内容
 # 1.0  PR-0001    2025/01/16 Bepro       新規作成
-# 1.1  〇〇〇〇〇  2025/07/29  Bepro       シスログ出力メソッド追加
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 # 共通クラスの読み込み
 . $(dirname $0)/../com/utils.shrc
@@ -35,8 +33,8 @@ declare -A LOG_LEVEL_PRIORITY=(
 # グローバル変数
 # ------------------------------------------------------------
 DEFAULT_LOG_MODE="CONSOLE"  # ログの出力モード (FILE, CONSOLE, SYSLOG)
-SCRIPT_NAME=`basename $0`
-BASE_PATH=${BASE_PATH:-"/home/bepro/projects/scripts/"}
+
+BASE_PATH=${BASE_PATH:-"//home/bepro/projects/scripts/"}
 COM_PATH=${BASE_PATH}/com
 ETC_PATH=${BASE_PATH}/etc
 LOG_PATH=${BASE_PATH}/log
@@ -45,7 +43,7 @@ REP_PATH=${BASE_PATH}/rep
 SCRIPT_NAME=$(basename "$0")
 INFRA_MSG_CONF="${ETC_PATH}/infraMessage.cfg"
 LOG_FORMAT="%s [ %s ] [ %s ] %s"  # デフォルトのログフォーマット
-LOG_LEVEL=${LOG_LEVEL:-"DEBUG"}  # デフォルトのログレベル
+LOG_LEVEL=${LOG_LEVEL:-"INFO"}  # デフォルトのログレベル
 TIMER_START=0
 JOB_OK=0
 JOB_WR=1
@@ -189,8 +187,19 @@ cnvServerityToLevel() {
 # return  N/A
 # --------------------------------------------------
 getSysMsg() {
-  awk -v id="$1" -v field="$2" '$1 == id && $2 == field { $1=""; $2=""; print substr($0, 3); exit }' "$msg_conf"
+    awk -v id="$1" -v field="$2" '
+        /^[[:space:]]*$/ { next }
+        /^#/ { next }
+        NF >= 3 && $1 == id && $2 == field {
+            for (i = 3; i <= NF; i++) {
+                printf "%s%s", (i > 3 ? OFS : ""), $i
+            }
+            print ""
+            exit
+        }
+    ' "$msg_conf"
 }
+
 
 # --------------------------------------------------
 # Output the system log.
@@ -206,18 +215,20 @@ logSystem() {
         exitLog 2
     fi
 
-    fac_serv=$(awk -v id="$1" '$1 == id { print $2; exit }' "$msg_conf")
-    raw_msg=$(awk -v id="$1" -v fac="$fac_serv" '$1 == id && $2 == fac { $1=""; $2=""; print substr($0, 3); exit }' "$msg_conf")
+    fac_serv=$(awk -v id="$1" 'NF >= 2 && $1 == id { print $2; exit }' "$msg_conf")
 
-    msg=$(eval echo "$raw_msg")
-
-    cnvServerityToLevel "$fac_serv" "$msg"
-
-    if [ -n "$fac_serv" ]; then
-        logger -t "$SCRIPT_NAME" -p "$fac_serv" "$msg"
-    else
+    if [ -z "$fac_serv" ]; then
         logOut "WARNING" "Logger priority is missing for id [$1]. Message not sent to syslog."
+        return
     fi
+
+    raw_msg=$(getSysMsg "$1" "$fac_serv")
+    e_msg=$(eval "echo \"$raw_msg\"")
+
+    logOut "[DEBUG] fac_serv=[$fac_serv]" >&2
+    logOut "[DEBUG] e_msg=[$e_msg]" >&2
+
+    logger -t "$SCRIPT_NAME" -p "$fac_serv" "$e_msg"
 }
 
 # ------------------------------------------------------------
