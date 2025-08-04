@@ -32,6 +32,13 @@ runAs root "$@"
 # ------------------------------------------------------------------
 scope="var"
 
+# ------------------------------------------------------------------
+# PostgreSQL初期パスワード設定（※任意のパスワードを設定してください）
+# この変数はインストール直後のpostgresユーザーのログイン用パスワードです。
+# セキュリティ上の理由から、ダウンロード後に必ず自分で設定してください。
+# ------------------------------------------------------------------
+POSTGRES_PASS="p8cduXDa"  # ← ここを任意の安全なパスワードに書き換えてください
+
 readonly JOB_OK=0
 readonly JOB_WR=1
 readonly JOB_ER=2
@@ -263,11 +270,9 @@ fi
     systemctl enable postgresql-${VERSION}
     systemctl start  postgresql-${VERSION}
 
-    #su - po ${PORT} -c \"ALTER USER postgres WITH PASSWORD 'p8cduXDa';\"" || exitLog ${JOB_ER}
-query="ALTER USER postgres WITH PASSWORD 'p8cduXDa';"
-eval "su - postgres -c \"psql -p ${PORT} -c \\\"${query}\\\"\"" || exitLog ${JOB_ER}
-
-
+    logOut "INFO" "初期ユーザーパスワードを設定します。"
+    query="ALTER USER postgres WITH PASSWORD '${POSTGRES_PASS}';"
+    eval "su - postgres -c \"psql -p ${PORT} -c \\\"${query}\\\"\"" || exitLog ${JOB_ER}
 
     logOut "INFO" "PostgreSQL ${VERSION} をポート ${PORT} でインストール完了"
     rc=${JOB_OK}
