@@ -46,6 +46,13 @@ lockD=""
 pidfile=""
 lock_owned=0
 
+# ========================================
+# 定数定義
+# ========================================
+readonly JOB_OK=0
+readonly JOB_WR=1
+readonly JOB_ER=2
+
 # ------------------------------------------------------------------
 # 関数定義
 # ------------------------------------------------------------------
@@ -96,8 +103,6 @@ EOF
 # ------------------------------------------------------------------
 acquireLock() {
     logOut "DEBUG" "$0:acquireLock() STARTED !"
-
-    local name="$1"
 
     # ロックディレクトリがなければ作成
     if [ ! -d "$lockD" ]; then
@@ -261,20 +266,14 @@ runMonitor() {
 startMonitor() {
     logOut "DEBUG" "$0:startMonitor() STARTED !"
 
-    checkUnitExists
-
-    if [ -f "${pidfile}" ]; then
-        pid=$(cat "${pidfile}")
-        logOut "DEBUG" "${pid}"
-        if ps -p "${pid}" > /dev/null 2>&1; then
-            logOut "INFO" "監視プロセスは既に起動中です。PID: ${pid}"
-            logOut "DEBUG" "$0:startMonitor() ENDED !"
-            return 0
-        else
-            logOut "WARNING" "PIDファイルは存在しますが、プロセスが存在しません。再起動します。"
-        fi
+    # acquireLock 成功時のみ進む
+    if ! acquireLock "${unit_name}"; then
+        logOut "ERROR" "すでに監視が起動中です。"
+        logOut "DEBUG" "$0:startMonitor() ENDED !"
+        exitLog ${JOB_ER}
     fi
 
+    checkUnitExists
     prepareDir "${lockD}"
 
     logOut "DEBUG" "nohup ${BIN_PATH}/${SCRIPT_NAME} -m run -u ${unit_name} -t ${target} -i ${interval} > ${lockD}/nohup.log 2>&1 &"
@@ -574,7 +573,7 @@ sendToMail() {
 scope="pre"
 
 startLog
-trap "terminate" 0 1 2 3 15
+trap "terminate" 1 2 3 15
 
 # 引数解析
 while getopts ":m:u:t:i:" opt; do
