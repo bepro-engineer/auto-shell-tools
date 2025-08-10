@@ -1,22 +1,34 @@
+#!/bin/sh
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 #
-# logger.sh ver.1.0.0 2025.07.20
+# スクリプト名：
+#     send_alert.sh
 #
-# Usage:
-#   sh send_alert.sh -m {start|stop|status|run|once|list} -u <unit_name> [-t {line|mail}] [-i <interval>]
+# 使い方：
+#     sh send_alert.sh -m {start|stop|status|list|run|once} -u <ユニット名> [-t mail|line] [-i 秒]
 #
-# Description:
-#   - root権限での実行必須
-#   - 多重起動防止（ロック機構）
-#   - PID管理対応
+# 説明：
+#     systemdユニット（例：postgresql-15）のjournaldログを監視し、
+#     しきい値やエラーパターン検出時に通知（メール／LINE）を行う。
+#     root権限での実行を前提。多重起動防止（ロック／PID管理）あり。
 #
-# 設計書
-#     none
+# 主な引数：
+#     -m  実行モード（start/stop/status/list/run/once）
+#     -u  監視対象のsystemdユニット名（例：postgresql-15）
+#     -t  通知手段（mail/line）省略可
+#     -i  監視間隔（秒）run/onceで使用
+#
+# 実行例：
+#     sh send_alert.sh -m start  -u postgresql-15 -t mail -i 5
+#     sh send_alert.sh -m list
+#
+# 設計資料：
+#     なし
 #
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 # ＜変更履歴＞
-# Ver. 変更管理No. 日付        更新者       変更内容
-# 1.0  PR-0001    2025/07/16 Bepro       新規作成
+# Ver. 変更管理No. 日付        更新者     変更内容
+# 1.0  ----------  2025/08/10  BePro      新規作成
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 # 共通関数・ログ読み込み
 . "$(dirname "$0")/../com/utils.shrc"
@@ -30,7 +42,6 @@ runAs root "$@"
 # ------------------------------------------------------------------
 scope="var"
 
-host_id=$(hostname -s)
 host_id=$(hostname -s)
 LINE_CHANNEL_ACCESS_TOKEN=$(grep '^LINE_CHANNEL_ACCESS_TOKEN=' "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2-)
 LINE_CHANNEL_SECRET=$(grep '^LINE_CHANNEL_SECRET=' "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2-)
@@ -90,16 +101,17 @@ EOF
 
 # ------------------------------------------------------------------
 # 関数名　　：acquireLock
-# 概要　　　：ロックディレクトリとPIDファイルを作成し、二重起動を防止する
+# 概要　　　：ロックディレクトリとPIDファイルを用いた二重起動防止処理
 # 説明　　　：
-#   指定されたロックディレクトリが存在しない場合は作成し、PIDファイルを生成する。
-#   既にPIDファイルが存在し、かつそのプロセスが稼働中であれば処理を終了（ロック取得失敗）。
-#   プロセスが存在しない場合はPIDファイルを削除し、再度ロックを取得する。
-#
-# 引数　　　：$1  ロック名（ユニット名など識別子）
+#   ・ロックディレクトリが存在しなければ作成する
+#   ・PIDファイルが存在する場合はプロセス稼働状況を確認
+#     稼働中なら1を返し終了（起動中）
+#     稼働していなければPIDファイルを削除して再取得
+#   ・新しいPIDファイルに自身のPIDを書き込み正常終了
+# 引数　　　：なし（lockD, pidfile は事前定義されていること）
 # 戻り値　　：0 正常取得
-# 　　　　　　1 ロック取得失敗（既に起動中またはディレクトリ作成失敗）
-# 使用箇所　：startMonitor 関数など、常駐監視開始時
+# 　　　　　　1 既に起動中またはディレクトリ作成失敗
+# 使用箇所　：startMonitor など常駐監視の開始処理
 # ------------------------------------------------------------------
 acquireLock() {
     logOut "DEBUG" "$0:acquireLock() STARTED !"
@@ -118,7 +130,7 @@ acquireLock() {
             return 1 # 既に起動中
         else
             # プロセス死んでたらクリア
-            rm -rf "$pidfile"
+            rm -f "$pidfile"
         fi
     fi
 
@@ -255,33 +267,43 @@ runMonitor() {
 
 # ------------------------------------------------------------------
 # 関数名　　：startMonitor
-# 概要　　　：監視プロセスの起動
+# 概要　　　：監視常駐プロセスの起動
 # 説明　　　：
-#   ロックディレクトリとPIDファイルの有無を確認し、
-#   実行中でなければ監視処理(runMonitor)をバックグラウンドで開始する。
-# 引数　　　：なし（グローバル変数 unit_name を利用）
-# 戻り値　　：0=正常, 1=異常
-# 使用箇所　：main-process（-m start 時）
+#   ・acquireLock が 1 を返した場合は「既に起動中」と判断して警告終了
+#   ・ロック取得後にユニット存在確認／作業ディレクトリ準備
+#   ・nohup で -m run をバックグラウンド起動し、実PIDを保存
+# 引数　　　：なし（unit_name, target, interval, lockD, pidfile 等は事前定義）
+# 戻り値　　：終了コードは exitLog に委譲（正常:JOB_OK／警告:JOB_WR／異常:JOB_ER）
+# 使用箇所　：-m start
 # ------------------------------------------------------------------
 startMonitor() {
     logOut "DEBUG" "$0:startMonitor() STARTED !"
 
-    # acquireLock 成功時のみ進む
+    # acquireLock 成功時のみ進む（1=既に起動中）
     if ! acquireLock "${unit_name}"; then
-        logOut "ERROR" "すでに監視が起動中です。"
+        logOut "WARN" "すでに監視が起動中です。"
         logOut "DEBUG" "$0:startMonitor() ENDED !"
-        exitLog ${JOB_ER}
+        exitLog ${JOB_WR}
     fi
 
     checkUnitExists
     prepareDir "${lockD}"
 
+    # 監視プロセス起動（バックグラウンド）
     logOut "DEBUG" "nohup ${BIN_PATH}/${SCRIPT_NAME} -m run -u ${unit_name} -t ${target} -i ${interval} > ${lockD}/nohup.log 2>&1 &"
     nohup "${BIN_PATH}/${SCRIPT_NAME}" -m run -u "${unit_name}" -t "${target}" -i "${interval}" > "${lockD}/nohup.log" 2>&1 &
+    child_pid=$!
 
-    sleep 2
+    # 生存確認（最大3回・約3秒）
+    pid=""
+    for i in 1 2 3; do
+        if ps -p "${child_pid}" >/dev/null 2>&1; then
+            pid="${child_pid}"
+            break
+        fi
+        sleep 1
+    done
 
-    pid=$(pgrep -f "${BIN_PATH}/${SCRIPT_NAME}.*-m run.*-u ${unit_name}")
     if [ -z "${pid}" ]; then
         logOut "ERROR" "監視プロセスの起動に失敗しました。nohupログを確認してください。"
         logOut "DEBUG" "$0:startMonitor() ENDED !"
@@ -311,8 +333,8 @@ stopMonitor() {
 
     # ロックディレクトリの存在確認
     if [ ! -d "${lockD}" ]; then
-        logOut "ERROR" "監視は実行されていません: ${unit_name}"
-        exitLog ${JOB_ER}
+        logOut "WARN" "監視は実行されていません: ${unit_name}"
+        exitLog ${JOB_WR}
     fi
 
     # PIDファイル存在確認
@@ -487,13 +509,13 @@ listMonitor() {
             local pid
             pid=$(cat "$pidfile")
             if ps -p "$pid" > /dev/null 2>&1; then
-                logOut "INFO" "[${unit}] 起動中 (PID: ${pid})"
+                logOut "INFO" "起動中 (PID: ${pid}) [${unit}] "
             else
-                logOut "WARN" "[${unit}] 停止中 (PIDファイルあり)"
+                logOut "WARN" "停止中 (PIDファイルあり) [${unit}] "
             fi
             found=1
         else
-            logOut "WARN" "[${unit}] PIDファイルなし"
+            logOut "WARN" "PIDファイルなし [${unit}] "
             found=1
         fi
     done
