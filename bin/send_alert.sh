@@ -49,7 +49,7 @@ MAIL_TO=""
 
 mode=""
 unit_name=""
-target="mail"          # 通知先のデフォルトはmail
+target="line"          # 通知先のデフォルトはline
 interval=60            # 監視間隔（秒）のデフォルト
 
 # ロック管理用ディレクトリ・PIDファイル
@@ -429,9 +429,11 @@ onceMonitor() {
 # ------------------------------------------------------------------
 checkJournald() {
     logOut "DEBUG" "$0:checkJournald() STARTED"
-    
+
+    exclude_file="/home/bepro/projects/scripts/etc/exclude_patterns_send_alert.conf"
+
     local mode="${1:-run}"
-    local pattern="error|fail|fatal|warning|warn|killing|【.*ERROR.*】"
+    local pattern="error|fail|fatal|warning|warn|killing|【.*ERROR.*】| grep -viF ${IGNORE}"
     local last_msg_file="${TMP_PATH}/checkJournald_${unit_name}.last"
     local since_file="${TMP_PATH}/journal_since_${unit_name}.ts"
 
@@ -445,8 +447,8 @@ checkJournald() {
 
     # -u (systemd) と -t (logger -p のタグ) を別々に取得
     local systemd_logs logger_logs message
-    systemd_logs=$(journalctl -u "${unit_name}" ${since_opt} --no-pager -o cat | grep -iE "${pattern}" 2>/dev/null || true)
-    logger_logs=$(journalctl -t "${unit_name}" ${since_opt} --no-pager -o cat | grep -iE "${pattern}" 2>/dev/null || true)
+    systemd_logs=$(journalctl -u "${unit_name}" ${since_opt} --no-pager -o cat | grep -iE "${pattern}" | grep -v -f "$exclude_file" 2>/dev/null || true)
+    logger_logs=$(journalctl -t "${unit_name}" ${since_opt} --no-pager -o cat | grep -iE "${pattern}" | grep -v -f "$exclude_file" 2>/dev/null || true)
 
     # マージ・重複排除・上限
     message=$(printf "%s\n%s" "${systemd_logs}" "${logger_logs}" \
