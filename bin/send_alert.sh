@@ -22,8 +22,10 @@ runAs root "$@"
 scope="var"
 
 host_id=$(hostname -s)
-LINE_TOKEN=$(grep LINE_TOKEN "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2)
-MAIL_TO=geeks.freedom@gmail.com
+host_id=$(hostname -s)
+LINE_CHANNEL_ACCESS_TOKEN=$(grep '^LINE_CHANNEL_ACCESS_TOKEN=' "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2-)
+LINE_CHANNEL_SECRET=$(grep '^LINE_CHANNEL_SECRET=' "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2-)
+MAIL_TO=""
 
 mode=""
 unit_name=""
@@ -67,7 +69,7 @@ Usage: $0 -m {start|stop|status|run|once|list} -u <unit_name> [-t {line|mail}] [
   -t : 通知先（line または mail、デフォルト mail）
   -i : 監視間隔（秒、runモード時、デフォルト60）
 EOF
-    exit 1
+    exitLog ${JOB_WR}
 }
 
 # ------------------------------------------------------------------
@@ -156,7 +158,6 @@ releaseLock() {
 # 戻り値　　：なし（不正時は usage 関数で終了）
 # 使用箇所　：スクリプト実行開始直後の引数解析後
 # ------------------------------------------------------------------
-
 checkArgs() {
     if [ -z "${mode}" ]; then
         logOut "ERROR" "モード(-m)が指定されていません。"
@@ -276,7 +277,7 @@ startMonitor() {
     if [ -z "${pid}" ]; then
         logOut "ERROR" "監視プロセスの起動に失敗しました。nohupログを確認してください。"
         logOut "DEBUG" "$0:startMonitor() ENDED !"
-        exit ${JOB_ER}
+        exitLog ${JOB_ER}
     fi
 
     echo "${pid}" > "${pidfile}"
@@ -368,12 +369,16 @@ statusMonitor() {
 
 # 単発監視（onceモード）
 onceMonitor() {
-    if ! acquireLock; then
-        logOut "WARNING" "既に監視が動作中のため、onceMonitorは実行されません。"
-        return
-    fi
+    logOut "DEBUG" "$0:onceMonitor() STARTED"
+
     checkUnitExists
-    checkJournald
+    # バックグラウンド監視が動いていても強制実行（ロックを取らない）
+    checkJournald "once"
+
+    # ロック解除
+    releaseLock
+
+    logOut "DEBUG" "$0:onceMonitor() ENDED"
 }
 
 # ------------------------------------------------------------------
@@ -392,10 +397,10 @@ onceMonitor() {
 # 戻り値　　：なし（処理結果はログ出力・通知）
 # 使用箇所　：send_alert.sh 内の監視ループや once 実行時
 # ------------------------------------------------------------------
-
 checkJournald() {
     logOut "DEBUG" "$0:checkJournald() STARTED"
-
+    
+    local mode="${1:-run}"
     local pattern="error|fail|fatal|warning|warn|killing|【.*ERROR.*】"
     local last_msg_file="${TMP_PATH}/checkJournald_${unit_name}.last"
     local since_file="${TMP_PATH}/journal_since_${unit_name}.ts"
@@ -502,12 +507,34 @@ listMonitor() {
 sendToLine() {
     logOut "DEBUG" "$0:sendToLine() STARTED !"
 
-    logOut "INFO" "[LINE通知] 以下のエラーログを送信します。"
-    echo "$1" | while read -r line; do
-        logOut "INFO" "[LINE] ${target}"
-        curl -s -X POST https://notify-api.line.me/api/notify \
-            -H "Authorization: Bearer ${LINE_TOKEN}" \
-            -F "message=${line}" > /dev/null
+    # 必要な環境変数の確認
+    if [ -z "${LINE_CHANNEL_ACCESS_TOKEN}" ]; then
+        logOut "ERROR" "LINE_CHANNEL_ACCESS_TOKEN が未設定です。etc/${host_id}/.env を確認してください。"
+        return 1
+    fi
+    if [ -z "$1" ]; then
+        logOut "ERROR" "送信メッセージが指定されていません。"
+        return 1
+    fi
+
+    # 引数のメッセージを行単位で送信（長文は分割）
+    echo "$1" | while IFS= read -r line || [ -n "$line" ]; do
+        # JSON用に最低限のエスケープ（\ と "）
+        esc=$(printf '%s' "$line" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+        payload=$(printf '{"messages":[{"type":"text","text":"%s"}]}' "$esc")
+
+        if curl -sS -X POST "https://api.line.me/v2/bot/message/broadcast" \
+            -H "Authorization: Bearer ${LINE_CHANNEL_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "${payload}" >/dev/null 2>&1; then
+            logOut "INFO" "[LINE/MessagingAPI] broadcast OK: ${line}"
+        else
+            logOut "ERROR" "[LINE/MessagingAPI] broadcast NG: ${line}"
+        fi
+
+        # API連投対策
+        sleep 0.2
     done
 
     logOut "DEBUG" "$0:sendToLine() ENDED !"
@@ -573,4 +600,4 @@ case "${mode}" in
 esac
 
 scope="post"
-exitLog 0
+exitLog ${JOB_OK}
