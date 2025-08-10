@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 #
 # logger.sh ver.1.0.0 2025.01.24
@@ -35,6 +35,7 @@ declare -A LOG_LEVEL_PRIORITY=(
 DEFAULT_LOG_MODE="CONSOLE"  # ログの出力モード (FILE, CONSOLE, SYSLOG)
 
 BASE_PATH=${BASE_PATH:-"//home/bepro/projects/scripts/"}
+BIN_PATH=${BASE_PATH}/bin
 COM_PATH=${BASE_PATH}/com
 ETC_PATH=${BASE_PATH}/etc
 LOG_PATH=${BASE_PATH}/log
@@ -43,7 +44,7 @@ REP_PATH=${BASE_PATH}/rep
 SCRIPT_NAME=$(basename "$0")
 INFRA_MSG_CONF="${ETC_PATH}/infraMessage.cfg"
 LOG_FORMAT="%s [ %s ] [ %s ] %s"  # デフォルトのログフォーマット
-LOG_LEVEL=${LOG_LEVEL:-"INFO"}  # デフォルトのログレベル
+LOG_LEVEL=${LOG_LEVEL:-"DEBUG"}  # デフォルトのログレベル
 TIMER_START=0
 JOB_OK=0
 JOB_WR=1
@@ -199,7 +200,6 @@ getSysMsg() {
         }
     ' "$msg_conf"
 }
-
 
 # --------------------------------------------------
 # Output the system log.
