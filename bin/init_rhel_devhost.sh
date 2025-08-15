@@ -83,7 +83,6 @@ disable_selinux () {
 # ------------------------------------------------------------------
 scope="pre"
 
-setLogMode ${LOG_MODE:-overwrite}
 startLog
 trap "terminate" 0 1 2 3 15
 
@@ -175,6 +174,7 @@ fi
 # 10. 必要パッケージのインストール
 line "10. 開発用パッケージのインストール"
 dnf -y install vim unzip tcpdump net-tools bind-utils curl git rsync lsof zstd
+if [ $? -ne 0 ]; then
 	logOut "ERROR"  "10. 必要パッケージのインストール設定に失敗しました"
 	exitLog ${JOB_ER}
 fi
