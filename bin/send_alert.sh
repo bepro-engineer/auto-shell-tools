@@ -45,7 +45,7 @@ scope="var"
 host_id=$(hostname -s)
 LINE_CHANNEL_ACCESS_TOKEN=$(grep '^LINE_CHANNEL_ACCESS_TOKEN=' "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2-)
 LINE_CHANNEL_SECRET=$(grep '^LINE_CHANNEL_SECRET=' "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2-)
-MAIL_TO=""
+MAIL_TO=$(grep '^MAIL_TO=' "${ETC_PATH}/${host_id}/.env" | cut -d '=' -f2-)
 
 mode=""
 unit_name=""
@@ -89,9 +89,9 @@ terminate() {
 # ------------------------------------------------------------------
 usage() {
     cat <<EOF
-Usage: $0 -m {start|stop|status|run|once|list} -u <unit_name> [-t {line|mail}] [-i <interval>]
+Usage: $0 -m {start|stop|status|once|list} -u <unit_name> [-t {line|mail}] [-i <interval>]
 
-  -m : モード（start|stop|status|run|once|list）
+  -m : モード（start|stop|status|once|list）
   -u : systemdユニット名（必須）
   -t : 通知先（line または mail、デフォルト mail）
   -i : 監視間隔（秒、runモード時、デフォルト60）
@@ -397,7 +397,20 @@ statusMonitor() {
     fi
 }
 
-# 単発監視（onceモード）
+# ------------------------------------------------------------------
+# 関数名　　：onceMonitor
+# 概要　　　：単発実行による障害検知と通知処理
+# 説明　　　：
+#   バックグラウンドで常駐監視が動作している場合でも、
+#   ロックを取得せずに強制的にログ監視処理（checkJournald）を実行します。
+#   実行後はロック解除処理を行い、単発監視の結果を通知します。
+#   定期監視ではなく即時確認が必要な場合に利用します。
+#
+# 引数　　　：なし
+# 戻り値　　：なし
+# 使用箇所　：main-process（-m once 実行時）
+# ------------------------------------------------------------------
+
 onceMonitor() {
     logOut "DEBUG" "$0:onceMonitor() STARTED"
 
@@ -631,5 +644,8 @@ case "${mode}" in
     *)      usage ;;
 esac
 
+# ------------------------------------------------------------------
+# post-process（終了処理）
+# ------------------------------------------------------------------
 scope="post"
 exitLog ${JOB_OK}
