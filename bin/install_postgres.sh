@@ -71,14 +71,6 @@ terminate() {
 }
 
 checkArgs() {
-    while getopts "m:v:p:" opt; do
-        case "$opt" in
-            m) MODE="$OPTARG" ;;
-            v) VERSION="$OPTARG" ;;
-            p) PORT="$OPTARG" ;;
-            *) usage ;;
-        esac
-    done
 
     case "$MODE" in
         list) : ;;
@@ -111,11 +103,9 @@ checkArgs() {
 # 使用箇所　：installPostgres
 # ------------------------------------------------------------------
 getRepoUrl() {
-    local version="$1"
-    local rhel_version
-    rhel_version=$(grep -oP '(?<=release )\d+' /etc/redhat-release)
-
-    echo "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${rhel_version}-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+  local rhel_ver
+  rhel_ver=$(rpm -E %rhel)
+  echo "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${rhel_ver}-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
 }
 
 # ------------------------------------------------------------------
@@ -131,47 +121,59 @@ getRepoUrl() {
 # 使用箇所　：installPostgres()
 # ------------------------------------------------------------------
 installPgRepo() {
-    logOut "INFO" "PostgreSQL ${VERSION} の yum リポジトリを確認します。"
+    logOut "INFO" "PostgreSQL ${VERSION} のPGDGリポジトリを登録します。"
 
     case "$VERSION" in
         10|11|12|13|14|15|16) ;;
-        *)
-            logOut "ERROR" "PostgreSQL ${VERSION} 系はサポート対象外です"
-            exitLog ${JOB_ER}
-            ;;
+        *) logOut "ERROR" "PostgreSQL ${VERSION} 系はサポート対象外です"; exitLog ${JOB_ER};;
     esac
 
-    el_version=$(grep -oE '[0-9]+' /etc/redhat-release | head -1)
-
-    # 不要レポジトリ削除
+    # 既存設定削除（外部URL依存のrepoを排除）
     rm -f /etc/yum.repos.d/pgdg*.repo
+    dnf -y remove pgdg-redhat-repo >/dev/null 2>&1 || true
 
-    # 必要なレポジトリのみ再生成
-    repo_path="/etc/yum.repos.d/pgdg-redhat-all.repo"
-    logOut "INFO" "pgdg${VERSION} の .repo ファイルを直接再生成します: ${repo_path}"
+    # RHELメジャー取得
+    local rhel_ver
+    rhel_ver=$(rpm -E %rhel)
 
-    cat <<EOF > "$repo_path"
+    # GPGキーをローカル固定（失敗時は gpgcheck=0 にフォールバック）
+    local gpg_file="/etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL"
+    local gpg_line=""
+    mkdir -p /etc/pki/rpm-gpg
+
+    if curl -fsSL -o "${gpg_file}" "https://apt.postgresql.org/pub/repos/yum/keys/PGDG-RPM-GPG-KEY-RHEL"; then
+        rpm --import "${gpg_file}" || { logOut "WARNING" "GPG鍵のimportに失敗。gpgcheck=0へ切替"; gpg_line="gpgcheck=0"; }
+        [ -z "${gpg_line}" ] && gpg_line="gpgcheck=1
+gpgkey=file://${gpg_file}"
+    else
+        logOut "WARNING" "GPG鍵の取得に失敗。gpgcheck=0へ切替します。"
+        gpg_line="gpgcheck=0"
+    fi
+
+    # 外部鍵URLを一切使わない .repo を手動生成
+    local repo_file="/etc/yum.repos.d/pgdg${VERSION}.repo"
+    cat > "${repo_file}" <<EOF
 [pgdg${VERSION}]
-name=PostgreSQL ${VERSION} for RHEL/CentOS ${el_version} - x86_64
-baseurl=https://download.postgresql.org/pub/repos/yum/${VERSION}/redhat/rhel-${el_version}-x86_64
+name=PostgreSQL ${VERSION} for RHEL/CentOS ${rhel_ver} - x86_64
+baseurl=https://download.postgresql.org/pub/repos/yum/${VERSION}/redhat/rhel-${rhel_ver}-x86_64
 enabled=1
-gpgcheck=1
-gpgkey=https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG
+${gpg_line}
 EOF
 
-    logOut "INFO" "dnf makecache を実行"
+    # EL-9未満のみAppStreamのpostgresqlを無効化
+    if [ "${rhel_ver}" -lt 10 ]; then
+        dnf -qy module disable postgresql || true
+    fi
+
     dnf clean all
-    dnf makecache --enablerepo=pgdg${VERSION} -y
+    dnf makecache --disablerepo='*' --enablerepo="pgdg${VERSION}" -y
 
-    logOut "INFO" "module postgresql を無効化します"
-    dnf -qy module disable postgresql || true
-
-    if ! dnf list available | grep -q "postgresql${VERSION}-server"; then
-        logOut "ERROR" "pgdg レポジトリ追加後も postgresql${VERSION}-server が見えません"
+    if ! dnf list --available --disablerepo='*' --enablerepo="pgdg${VERSION}" "postgresql${VERSION}-server" >/dev/null 2>&1; then
+        logOut "ERROR" "postgresql${VERSION}-server が見えません（repo設定を確認）"
         exitLog ${JOB_ER}
     fi
 
-    logOut "INFO" "PostgreSQL ${VERSION} の yum リポジトリ登録が完了しました。"
+    logOut "INFO" "PGDGリポジトリ登録OK（gpgkeyはローカル固定／外部鍵URL非依存）。"
 }
 
 # ------------------------------------------------------------------
@@ -241,15 +243,6 @@ fi
         logOut "INFO" "dnf makecache を実行してキャッシュを更新します。"
         dnf makecache --disablerepo='*' --enablerepo="pgdg*" -y
     fi
-
-    dnf config-manager --set-enabled pgdg-common || true
-    dnf config-manager --set-enabled pgdg${VERSION} || true
-    dnf config-manager --set-enabled pgdg${VERSION}-source || true
-    dnf config-manager --set-enabled pgdg${VERSION}-debug || true
-
-     dnf config-manager --set-enabled pgdg${VERSION}
-
-    repo_url=$(getRepoUrl "$VERSION")
 
     logOut "INFO" "(2/3) postgresql${VERSION}-server をダウンロード / インストール中…"
     if ! dnf -y install --disablerepo='*' --enablerepo="pgdg*" "postgresql${VERSION}-server"; then
@@ -345,6 +338,16 @@ scope="pre"
 
 startLog
 trap "terminate" 0 1 2 3 15
+
+while getopts "m:v:p:" opt; do
+    case "$opt" in
+        m) MODE="$OPTARG" ;;
+        v) VERSION="$OPTARG" ;;
+        p) PORT="$OPTARG" ;;
+        *) usage ;;
+    esac
+done
+
 checkArgs "$@"
 
 if acquireLock; then
