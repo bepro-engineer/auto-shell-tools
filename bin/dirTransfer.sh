@@ -167,4 +167,4 @@ fi
 scope="post"
 
 logOut "INFO" "dirTransfer.sh completed successfully."
-exit ${JOB_OK}
+exitLog ${JOB_OK}
