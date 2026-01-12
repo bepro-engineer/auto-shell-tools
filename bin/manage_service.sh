@@ -60,17 +60,24 @@ Options:
   -c command      : Specify operation mode（start|stop|restart|graceful|graceful-stop|status）
 
 Commands:
-  launch         - Launch the process
-  shutdown       - Terminate the process
-  cycle          - Restart it cleanly
-  reload         - Apply configuration changes (if applicable)
-  soft-stop      - Attempt soft stop (fallback: force stop)
-  inspect        - Display current operational status
+  start           - Start the service
+  stop            - Stop the service
+  restart         - Restart the service
+  graceful        - Reload configuration (if supported)
+  graceful-stop   - Graceful stop (fallback to stop)
+  status          - Display current service status
 --------------------------------------
 Example:
   sh manage_service.sh -s httpd -c start
   sh manage_service.sh -s sshd -c status
 EOF
+}
+
+# 処理終了関数
+terminate() {
+    rc=${JOB_ER}
+    logOut "ERROR" "Terminated by signal."
+    exitLog ${rc}
 }
 
 # サービスの起動状態を確認
@@ -99,13 +106,13 @@ while getopts "s:c:" opt; do
     case "$opt" in
         s) SERVICE_NAME="$OPTARG" ;;
         c) CMD="$OPTARG" ;;
-        *) usage; exit ${JOB_ER} ;;
+        *) usage; exitLog ${JOB_ER} ;;
     esac
 done
 
 startLog
 logOut "INFO" "Args: [-s $SERVICE_NAME -c $CMD]"
-trap ":" 1 2 3 15
+trap "terminate" 1 2 3 15
 
 # 入力チェック
 if [ -z "$SERVICE_NAME" ] || [ -z "$CMD" ]; then
@@ -123,30 +130,37 @@ case "$CMD" in
     start)
         if isServiceRunning "$SERVICE_NAME"; then
             logOut "WARNING" "$SERVICE_NAME is already running."
+            rc=${JOB_OK}
         else
             logOut "INFO" "Starting $SERVICE_NAME..."
             systemctl start "$SERVICE_NAME"
+            rc=$?
         fi
         ;;
     stop)
         if ! isServiceRunning "$SERVICE_NAME"; then
             logOut "WARNING" "$SERVICE_NAME is already stopped."
+            rc=${JOB_OK}
         else
             logOut "INFO" "Stopping $SERVICE_NAME..."
             systemctl stop "$SERVICE_NAME"
+            rc=$?
         fi
         ;;
     restart)
         logOut "INFO" "Restarting $SERVICE_NAME..."
         systemctl restart "$SERVICE_NAME"
+        rc=$?
         ;;
     graceful)
         logOut "INFO" "Reloading $SERVICE_NAME..."
         systemctl reload "$SERVICE_NAME"
+        rc=$?
         ;;
     graceful-stop)
         logOut "INFO" "Graceful stop not supported. Falling back to stop..."
         systemctl stop "$SERVICE_NAME"
+        rc=$?
         ;;
     status)
         displayStatus "$SERVICE_NAME"
