@@ -81,7 +81,7 @@ Options:
   -f file         : 1行1パスのファイル（#コメント、空行は無視）
 
 Example:
-  sh manage_tomat_app.sh -b http://localhost:8080 -u admin -p admin123 -c list
+  sh manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -c list
   sh manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -a /docs -c stop
   sh manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -f /opt/tomcat9/conf/apps_online.lst -c start
 --------------------------------------
