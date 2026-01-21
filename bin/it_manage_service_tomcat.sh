@@ -36,9 +36,10 @@ TARGET="./manage_service.sh"
 # ------------------------------------------------------------------
 # 必須パラメータ（未指定なら停止）
 # ------------------------------------------------------------------
-TOMCAT_SERVICE="${TOMCAT_SERVICE:-}"
-TOMCAT_PORT="${TOMCAT_PORT:-}"
-TOMCAT_PATH="${TOMCAT_PATH:-}"
+# デフォルト（未指定ならこれで動く）
+TOMCAT_SERVICE="${TOMCAT_SERVICE:-tomcat9}"
+TOMCAT_PORT="${TOMCAT_PORT:-8080}"
+TOMCAT_PATH="${TOMCAT_PATH:-/}"
 
 # 任意：設定テストコマンド（rc=0 を期待）
 CONFIG_TEST_CMD="${CONFIG_TEST_CMD:-}"

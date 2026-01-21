@@ -20,14 +20,17 @@
 #   - graceful / graceful-stop をサポートする前提
 #
 # 実行例（必須指定）：
-#   HTTPD_SERVICE="httpd" HTTP_PORT="80" HTTP_PATH="/" \
+#   HTTPD_HTTPD_SERVICE="httpd" HTTP_PORT="80" HTTP_PATH="/" \
 #   sh it_manage_service_httpd.sh
 # ------------------------------------------------------------------
 
 cd "$(dirname "$0")" || exit 1
 
 TARGET="./manage_service.sh"
-SERVICE="httpd"
+# ------------------------------------------------------------------
+# パラメータ（未指定ならデフォルトを使用）
+# ------------------------------------------------------------------
+HTTPD_SERVICE="${HTTPD_SERVICE:-httpd}"
 
 PASS=0
 FAIL=0
@@ -70,19 +73,19 @@ assert_prereq() {
     assert_cmd ss
     assert_cmd curl
 
-    systemctl list-unit-files 2>/dev/null | grep -q "^${SERVICE}\.service" || fatal "${SERVICE}.service が存在しない"
+    systemctl list-unit-files 2>/dev/null | grep -q "^${HTTPD_SERVICE}\.service" || fatal "${HTTPD_SERVICE}.service が存在しない"
 }
 
 # ------------------------------------------------------------
 # 状態取得
 # ------------------------------------------------------------
 get_state() {
-    systemctl is-active "$SERVICE" 2>/dev/null
+    systemctl is-active "$HTTPD_SERVICE" 2>/dev/null
 }
 
 get_main_pid() {
     # systemd が管理する MainPID を取る（0 の場合あり）
-    systemctl show -p MainPID "$SERVICE" 2>/dev/null | awk -F= '{print $2}'
+    systemctl show -p MainPID "$HTTPD_SERVICE" 2>/dev/null | awk -F= '{print $2}'
 }
 
 # ------------------------------------------------------------
