@@ -1,5 +1,5 @@
 #!/bin/sh
-# it_manage_service_httpd_full.sh
+# it_manage_service_httpd.sh
 # IT for manage_service.sh (httpd)
 # 判定：
 #   - 終了コード(rc)
@@ -11,7 +11,7 @@
 # 方針：
 #   - 疑似systemctlは使わない（実systemd）
 #   - 疑似curlは使わない（実curl）
-
+#   - 排他制御はテスト項目から除外
 cd "$(dirname "$0")" || exit 1
 
 TARGET="./manage_service.sh"
