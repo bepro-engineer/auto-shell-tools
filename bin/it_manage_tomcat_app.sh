@@ -72,6 +72,7 @@ run_expect_eq() {
 # 状態作り（rcの揺れを潰すための前処理）
 #   ※ここは「テストではなく準備」扱い
 # ------------------------------------------------------------------
+# テスト前提条件として、対象アプリを「必ず running 状態」に揃えるための準備用関数
 ensure_running() {
     # 1回目：stoppedなら 0 / runningなら 1 / 失敗なら 2
     sh "$TARGET" -b "$BASE_URL" -c start -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH" >/dev/null 2>&1
@@ -80,6 +81,7 @@ ensure_running() {
     return 0
 }
 
+# テスト前提条件として、対象アプリを「必ず stopped 状態」に揃えるための準備用関数
 ensure_stopped() {
     # 1回目：runningなら 0 / stopped(notfound含む)なら 1 / 失敗なら 2
     sh "$TARGET" -b "$BASE_URL" -c stop -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH" >/dev/null 2>&1
@@ -91,10 +93,12 @@ ensure_stopped() {
 # ------------------------------------------------------------------
 # 一時ファイル作成（file系テスト用）
 # ------------------------------------------------------------------
+# file 指定テスト用の一時ディレクトリと入力ファイル群を作成する準備処理
 TMP_DIR="$(mktemp -d 2>/dev/null)"
 [ -n "$TMP_DIR" ] || exit 1
 trap 'rm -rf "$TMP_DIR"' 0 1 2 3 15
 
+# -f（file指定）テスト用：アプリパス一覧ファイル群（空／コメントのみ／警告系／エラー系／空白混在）
 F_EMPTY="${TMP_DIR}/apps_empty.lst"
 F_COMMENT="${TMP_DIR}/apps_comment.lst"
 F_WARN_START="${TMP_DIR}/apps_warn_start.lst"
@@ -159,115 +163,195 @@ echo "========================================"
 echo "INTEGRATION TEST : manage_tomcat_app.sh (full)"
 echo "========================================"
 
-# ==================================================================
-# 1) 引数・オプションの異常系（Tomcat不要）
-# ==================================================================
-run_expect_eq "T01 no args" 2
-run_expect_eq "T02 -c only" 2 -c list
-run_expect_eq "T03 -u only" 2 -u "$USER_NAME"
-run_expect_eq "T04 -p only" 2 -p "$USER_PASS"
-run_expect_eq "T05 -c list -u only" 2 -c list -u "$USER_NAME"
-run_expect_eq "T06 -c list -p only" 2 -c list -p "$USER_PASS"
-run_expect_eq "T07 invalid command" 2 -c badcmd -u "$USER_NAME" -p "$USER_PASS"
-run_expect_eq "T08 status without -a/-f" 2 -c status -u "$USER_NAME" -p "$USER_PASS"
-run_expect_eq "T09 -a and -f together" 2 -c status -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH" -f "$F_EMPTY"
-run_expect_eq "T10 file not found" 2 -c status -u "$USER_NAME" -p "$USER_PASS" -f "${TMP_DIR}/no_such_file.lst"
+# ------------------------------------------------------------
+# 1) 引数バリデーションテスト
+#    不正・不足・不正形式の引数に対して rc=2 で終了することを確認
+# ------------------------------------------------------------
 
-# ==================================================================
-# 2) list（実Tomcat）
-# ==================================================================
-run_expect_eq "T20 list" 0 -c list -u "$USER_NAME" -p "$USER_PASS"
+# 引数なし → エラー
+run_expect_eq "T01 no args"               2
 
-# ==================================================================
-# 3) status（実Tomcat）
-#   ※このスクリプト仕様では「存在すれば 0 / 無ければ 1」
-# ==================================================================
-run_expect_eq "T30 status exists" 0 -c status -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
-run_expect_eq "T31 status notfound" 1 -c status -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
+# -c のみ指定（認証情報不足）→ エラー
+run_expect_eq "T02 -c only"               2 -c list
 
-# ==================================================================
-# 4) start（状態別）
-# ==================================================================
-# stopped を作る → start は 0 を期待
+# -u のみ指定 → エラー
+run_expect_eq "T03 -u only"               2 -u "$USER_NAME"
+
+# -p のみ指定 → エラー
+run_expect_eq "T04 -p only"               2 -p "$USER_PASS"
+
+# -c list + -u のみ指定（パスワード不足）→ エラー
+run_expect_eq "T05 -c list -u only"       2 -c list -u "$USER_NAME"
+
+# -c list + -p のみ指定（ユーザー不足）→ エラー
+run_expect_eq "T06 -c list -p only"       2 -c list -p "$USER_PASS"
+
+# 未定義コマンド指定 → エラー
+run_expect_eq "T07 invalid command"       2 -c badcmd -u "$USER_NAME" -p "$USER_PASS"
+
+# status で -a / -f 未指定 → エラー
+run_expect_eq "T08 status without path"   2 -c status -u "$USER_NAME" -p "$USER_PASS"
+
+# -a と -f を同時指定 → エラー
+run_expect_eq "T09 -a and -f together"    2 -c status -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH" -f "$F_EMPTY"
+
+# -f 指定ファイルが存在しない → エラー
+run_expect_eq "T10 file not found"         2 -c status -u "$USER_NAME" -p "$USER_PASS" -f "${TMP_DIR}/no_such_file.lst"
+
+# ------------------------------------------------------------
+# 2) list コマンド正常系テスト
+#    正常な認証情報で list を実行した場合に rc=0 で終了することを確認
+# ------------------------------------------------------------
+
+# list 正常実行 → rc=0
+run_expect_eq "T20 list"                  0 -c list -u "$USER_NAME" -p "$USER_PASS"
+
+# ------------------------------------------------------------
+# 3) status コマンドの結合テスト（実 Tomcat）
+#    前提状態 → 操作 → 結果（rc）を確認
+# ------------------------------------------------------------
+
+# [前提] アプリは存在する
+# [操作] status を実行
+# [確認] rc=0（存在する）
+run_expect_eq "T30 status on existing app" 0 -c status -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
+
+# [前提] アプリは存在しない
+# [操作] status を実行
+# [確認] rc=1（存在しない）
+run_expect_eq "T31 status on notfound app"  1 -c status -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
+
+# ------------------------------------------------------------
+# 4) start コマンドの結合テスト（状態別）
+#    前提状態 → 操作 → 結果（rc）を確認
+# ------------------------------------------------------------
+
+# [前提] アプリは停止中
+# [操作] start を実行
+# [確認] rc=0（起動成功）
 ensure_stopped
-run_expect_eq "T40 start from stopped" 0 -c start -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
+run_expect_eq "T40 start on stopped app"   0 -c start -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
 
-# running を作る → start は 1 を期待（Already running）
+# [前提] アプリは起動中
+# [操作] start を再実行
+# [確認] rc=1（既に起動中：冪等性）
 ensure_running
-run_expect_eq "T41 start when running" 1 -c start -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
+run_expect_eq "T41 start on running app"   1 -c start -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
 
-# notfound → start は 2（Start failed）
-run_expect_eq "T42 start notfound" 2 -c start -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
+# [前提] アプリは存在しない
+# [操作] start を実行
+# [確認] rc=2（起動失敗）
+run_expect_eq "T42 start on notfound app"  2 -c start -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
 
-# normalizePath（先頭 / なしでも動くか）
+# [前提] アプリは停止中
+# [操作] 先頭スラッシュなしのパスで start を実行
+# [確認] rc=0（パス正規化が機能している）
 ensure_stopped
-run_expect_eq "T43 start path without leading slash" 0 -c start -u "$USER_NAME" -p "$USER_PASS" -a "docs"
+run_expect_eq "T43 start without leading slash" 0 -c start -u "$USER_NAME" -p "$USER_PASS" -a "docs"
 
-# ==================================================================
-# 5) stop（状態別）
-# ==================================================================
-# running を作る → stop は 0 を期待
+# ------------------------------------------------------------
+# 5) stop コマンドの結合テスト（状態別）
+#    前提状態 → 操作 → 結果（rc）を確認
+# ------------------------------------------------------------
+
+# [前提] アプリは起動中
+# [操作] stop を実行
+# [確認] rc=0（停止成功）
 ensure_running
-run_expect_eq "T50 stop from running" 0 -c stop -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
+run_expect_eq "T50 stop on running app"    0 -c stop -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
 
-# stopped を作る → stop は 1 を期待（Already stopped or notfound）
+# [前提] アプリは停止中
+# [操作] stop を再実行
+# [確認] rc=1（既に停止中：冪等性）
 ensure_stopped
-run_expect_eq "T51 stop when stopped" 1 -c stop -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
+run_expect_eq "T51 stop on stopped app"    1 -c stop -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
 
-# notfound → stop は 1（stopApp仕様）
-run_expect_eq "T52 stop notfound" 1 -c stop -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
+# [前提] アプリは存在しない
+# [操作] stop を実行
+# [確認] rc=1（notfound は停止扱い）
+run_expect_eq "T52 stop on notfound app"   1 -c stop -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
 
-# ==================================================================
-# 6) restart（状態別）
-# ==================================================================
-# running → restart は 0 を期待
+# ------------------------------------------------------------
+# 6) restart コマンドの結合テスト（状態別）
+#    前提状態 → 操作 → 結果（rc）を確認
+# ------------------------------------------------------------
+
+# [前提] アプリは起動中
+# [操作] restart を実行
+# [確認] rc=0（再起動成功）
 ensure_running
-run_expect_eq "T60 restart when running" 0 -c restart -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
+run_expect_eq "T60 restart on running app"  0 -c restart -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
 
-# stopped → restart は 0 を期待（stop=1でもOK、start=0なら成功）
+# [前提] アプリは停止中
+# [操作] restart を実行
+# [確認] rc=0（stop は 1 でも start が成功すれば成功）
 ensure_stopped
-run_expect_eq "T61 restart when stopped" 0 -c restart -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
+run_expect_eq "T61 restart on stopped app"  0 -c restart -u "$USER_NAME" -p "$USER_PASS" -a "$APP_PATH"
 
-# notfound → restart は 2（start が 2 になる）
-run_expect_eq "T62 restart notfound" 2 -c restart -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
+# [前提] アプリは存在しない
+# [操作] restart を実行
+# [確認] rc=2（start 失敗）
+run_expect_eq "T62 restart on notfound app" 2 -c restart -u "$USER_NAME" -p "$USER_PASS" -a "$NOAPP_PATH"
 
-# ==================================================================
-# 7) file（processFile）
-# ==================================================================
-run_expect_eq "T70 file empty" 0 -c status -u "$USER_NAME" -p "$USER_PASS" -f "$F_EMPTY"
-run_expect_eq "T71 file comment only" 0 -c status -u "$USER_NAME" -p "$USER_PASS" -f "$F_COMMENT"
+# ------------------------------------------------------------
+# 7) file（-f）指定時の結合テスト
+#    前提状態 → 操作 → 結果（rc）を確認
+# ------------------------------------------------------------
 
-# start：WARNING(1) 混在（already running のみ）
+# [前提] ファイルは空
+# [操作] status を実行
+# [確認] rc=0（対象なしでも正常終了）
+run_expect_eq "T70 file empty"              0 -c status -u "$USER_NAME" -p "$USER_PASS" -f "$F_EMPTY"
+
+# [前提] ファイルはコメント行のみ
+# [操作] status を実行
+# [確認] rc=0（コメントは無視され正常終了）
+run_expect_eq "T71 file comment only"       0 -c status -u "$USER_NAME" -p "$USER_PASS" -f "$F_COMMENT"
+
+# [前提] 対象アプリはすべて起動中
+# [操作] start を実行（already running のみ）
+# [確認] rc=1（WARNING のみ混在）
 ensure_running
 run_expect_eq "T72 file start warning mixed" 1 -c start -u "$USER_NAME" -p "$USER_PASS" -f "$F_WARN_START"
 
-# start：ERROR(2) 混在（notfound を含める）
+# [前提] 対象アプリに notfound を含む
+# [操作] start を実行
+# [確認] rc=2（ERROR が混在）
 ensure_running
-run_expect_eq "T73 file start error mixed" 2 -c start -u "$USER_NAME" -p "$USER_PASS" -f "$F_ERR_START"
+run_expect_eq "T73 file start error mixed"   2 -c start -u "$USER_NAME" -p "$USER_PASS" -f "$F_ERR_START"
 
-# stop：WARNING(1) 混在（already stopped のみ）
+# [前提] 対象アプリはすべて停止中
+# [操作] stop を実行（already stopped のみ）
+# [確認] rc=1（WARNING のみ混在）
 ensure_stopped
-run_expect_eq "T74 file stop warning mixed" 1 -c stop -u "$USER_NAME" -p "$USER_PASS" -f "$F_WARN_STOP"
+run_expect_eq "T74 file stop warning mixed"  1 -c stop -u "$USER_NAME" -p "$USER_PASS" -f "$F_WARN_STOP"
 
-# stop：notfound 混在（stopは 1 扱い）
+# [前提] 対象アプリに notfound を含む
+# [操作] stop を実行
+# [確認] rc=1（notfound は停止扱い）
 ensure_stopped
 run_expect_eq "T75 file stop notfound mixed" 1 -c stop -u "$USER_NAME" -p "$USER_PASS" -f "$F_ERR_STOP"
 
-# 空白混在（パスの前後空白が混ざっても落ちないか）
+# [前提] パスに前後空白が混在
+# [操作] start を実行
+# [確認] rc=1（正規化され already running 扱い）
 ensure_running
-run_expect_eq "T76 file mixed spaces start" 1 -c start -u "$USER_NAME" -p "$USER_PASS" -f "$F_MIX_SPACE"
+run_expect_eq "T76 file mixed spaces start"  1 -c start -u "$USER_NAME" -p "$USER_PASS" -f "$F_MIX_SPACE"
 
-# ==================================================================
-# 8) 通信・認証
-# ==================================================================
-# 接続不可 → curl rc!=0 → 2
-run_expect_eq "T80 curl failed (connect)" 2 -b "http://127.0.0.1:9" -c list -u "$USER_NAME" -p "$USER_PASS"
+# ------------------------------------------------------------
+# 8) 通信・認証の結合テスト
+#    前提状態 → 操作 → 結果（rc）を確認
+# ------------------------------------------------------------
 
-# 認証失敗について：
-#   manage_tomcat_app.sh は curl の HTTP ステータスを見ていない（curl rc のみ）
-#   そのため 401/403 でも curl rc は 0 になり得る。
-#   ここは「現状仕様に合わせた期待値」で固定する。
-run_expect_eq "T81 auth failed (current behavior)" 0 -c list -u "$USER_NAME" -p "__wrong_pass__"
+# [前提] 接続先が存在しない（接続不可）
+# [操作] list を実行
+# [確認] rc=2（curl 接続失敗）
+run_expect_eq "T80 connect failed"          2 -b "http://127.0.0.1:9" -c list -u "$USER_NAME" -p "$USER_PASS"
+
+# [前提] 認証情報が不正
+# [操作] list を実行
+# [確認] rc=0（HTTP ステータスは見ず、curl の終了コードのみで判定）
+run_expect_eq "T81 auth failed"             0 -c list -u "$USER_NAME" -p "__wrong_pass__"
 
 # ------------------------------------------------------------------
 # 結果
