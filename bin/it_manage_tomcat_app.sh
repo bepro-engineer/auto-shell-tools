@@ -209,9 +209,6 @@ cat > "$F_COMMENT" <<EOF
 # another comment
 EOF
 
-# 先に running を作っておく（WARNING(1) を確実に出すため）
-ensure_running
-
 # start：既にrunningのパスを並べる → 各行が rc=1 → 合計 rc=1
 cat > "$F_WARN_START" <<EOF
 # start warning mixed (already running)
@@ -225,9 +222,6 @@ cat > "$F_ERR_START" <<EOF
 ${APP_PATH}
 ${NOAPP_PATH}
 EOF
-
-# stop：先に stopped を作っておく（WARNING(1) を確実に出すため）
-ensure_stopped
 
 # stop：既にstoppedのパスを並べる → 各行が rc=1 → 合計 rc=1
 cat > "$F_WARN_STOP" <<EOF
