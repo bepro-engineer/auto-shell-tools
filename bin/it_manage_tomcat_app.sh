@@ -99,6 +99,7 @@ TMP_DIR="$(mktemp -d 2>/dev/null)"
 trap 'rm -rf "$TMP_DIR"' 0 1 2 3 15
 
 F_EMPTY="${TMP_DIR}/apps_empty.lst"
+: > "$F_EMPTY"
 
 # -f（file指定）テスト用：アプリパス一覧ファイル群（空／コメントのみ／警告系／エラー系／空白混在）
 # ------------------------------------------------------------
@@ -112,6 +113,10 @@ F_EMPTY="${TMP_DIR}/apps_empty.lst"
 #   コメント行のみ（全行 # で始まる）
 # ------------------------------------------------------------
 F_COMMENT="${TMP_DIR}/apps_comment.lst"
+cat > "$F_COMMENT" <<EOF
+# comment only
+# another comment
+EOF
 
 # ------------------------------------------------------------
 # 後述の test 項目 T72 で使用するためのファイルを作成する
@@ -130,6 +135,12 @@ F_COMMENT="${TMP_DIR}/apps_comment.lst"
 #   ensure_running 済み（対象アプリは起動中）
 # ------------------------------------------------------------
 F_WARN_START="${TMP_DIR}/apps_warn_start.lst"
+# start：既にrunningのパスを並べる → 各行が rc=1 → 合計 rc=1
+cat > "$F_WARN_START" <<EOF
+# start warning mixed (already running)
+${APP_PATH}
+${APP_PATH}
+EOF
 
 # ------------------------------------------------------------
 # 後述の test 項目 T73 で使用するためのファイルを作成する
@@ -148,6 +159,12 @@ F_WARN_START="${TMP_DIR}/apps_warn_start.lst"
 #   ensure_running 済み（実在アプリは起動中）
 # ------------------------------------------------------------
 F_ERR_START="${TMP_DIR}/apps_err_start.lst"
+# start：notfound を混ぜる → rc_total は 2
+cat > "$F_ERR_START" <<EOF
+# start error mixed (notfound included)
+${APP_PATH}
+${NOAPP_PATH}
+EOF
 
 # ------------------------------------------------------------
 # 後述の test 項目 T74 で使用するためのファイルを作成する
@@ -166,6 +183,12 @@ F_ERR_START="${TMP_DIR}/apps_err_start.lst"
 #   ensure_stopped 済み（対象アプリは停止中）
 # ------------------------------------------------------------
 F_WARN_STOP="${TMP_DIR}/apps_warn_stop.lst"
+# stop：既にstoppedのパスを並べる → 各行が rc=1 → 合計 rc=1
+cat > "$F_WARN_STOP" <<EOF
+# stop warning mixed (already stopped)
+${APP_PATH}
+${APP_PATH}
+EOF
 
 # ------------------------------------------------------------
 # 後述の test 項目 T75 で使用するためのファイルを作成する
@@ -184,6 +207,13 @@ F_WARN_STOP="${TMP_DIR}/apps_warn_stop.lst"
 #   ensure_stopped 済み（実在アプリは停止中）
 # ------------------------------------------------------------
 F_ERR_STOP="${TMP_DIR}/apps_err_stop.lst"
+# stop：notfound を混ぜる → 各行の notfound は rc=1（stopApp仕様）なので rc_total は 1 になる
+# ただし、ここは「ERROR(2) が混在しない」ケース。ERROR混在は restart/start で作る。
+cat > "$F_ERR_STOP" <<EOF
+# stop mixed with notfound (still WARNING total)
+${APP_PATH}
+${NOAPP_PATH}
+EOF
 
 # ------------------------------------------------------------
 # 後述の test 項目 T76 で使用するためのファイルを作成する
@@ -202,42 +232,6 @@ F_ERR_STOP="${TMP_DIR}/apps_err_stop.lst"
 #   ensure_running 済み（対象アプリは起動中）
 # ------------------------------------------------------------
 F_MIX_SPACE="${TMP_DIR}/apps_mix_space.lst"
-
-: > "$F_EMPTY"
-cat > "$F_COMMENT" <<EOF
-# comment only
-# another comment
-EOF
-
-# start：既にrunningのパスを並べる → 各行が rc=1 → 合計 rc=1
-cat > "$F_WARN_START" <<EOF
-# start warning mixed (already running)
-${APP_PATH}
-${APP_PATH}
-EOF
-
-# start：notfound を混ぜる → rc_total は 2
-cat > "$F_ERR_START" <<EOF
-# start error mixed (notfound included)
-${APP_PATH}
-${NOAPP_PATH}
-EOF
-
-# stop：既にstoppedのパスを並べる → 各行が rc=1 → 合計 rc=1
-cat > "$F_WARN_STOP" <<EOF
-# stop warning mixed (already stopped)
-${APP_PATH}
-${APP_PATH}
-EOF
-
-# stop：notfound を混ぜる → 各行の notfound は rc=1（stopApp仕様）なので rc_total は 1 になる
-# ただし、ここは「ERROR(2) が混在しない」ケース。ERROR混在は restart/start で作る。
-cat > "$F_ERR_STOP" <<EOF
-# stop mixed with notfound (still WARNING total)
-${APP_PATH}
-${NOAPP_PATH}
-EOF
-
 # 空白や前後スペースの混在（normalizePath/trim 想定の確認）
 cat > "$F_MIX_SPACE" <<EOF
 # mixed spaces
