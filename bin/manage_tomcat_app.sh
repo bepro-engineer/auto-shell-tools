@@ -411,6 +411,9 @@ processFile() {
     fi
 
     while IFS= read -r line || [ -n "$line" ]; do
+	# 前後空白を除去（空白付きパス、"  #comment" も吸収）
+        line=$(trimLine "$line")
+
         # コメント・空行は無視
         case "$line" in
             "" ) continue ;;
@@ -563,4 +566,5 @@ esac
 scope="post"
 
 exitLog $RC
+
 
