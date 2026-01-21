@@ -1,26 +1,32 @@
 #!/bin/sh
-# it_manage_service_tomcat_full.sh
+# ------------------------------------------------------------------
+# it_manage_service_tomcat.sh
 # IT for manage_service.sh (Tomcat)
+#
 # 判定：
 #   - 終了コード(rc)
-#   - systemd 実状態（active/inactive）
+#   - systemd 実状態（active / inactive）
 #   - LISTEN 確認（ss）
 #   - HTTP 疎通（curl）
 #
 # 方針：
-#   - 疑似systemctlは使わない（実systemd）
-#   - 疑似curlは使わない（実curl）
+#   - 疑似 systemctl は使わない（実 systemd）
+#   - 疑似 curl は使わない（実 curl）
+#   - 排他制御はテスト項目から除外
 #
-# 重要（httpd版との差分）：
-#   - Tomcat には graceful / graceful-stop を持たない前提で削除
-#   - httpd -t に相当する標準の「設定テストコマンド」は環境依存のため未実施
-#     必要なら CONFIG_TEST_CMD で外部コマンドを指定して実行可能
+# 前提（httpd 版との差分）：
+#   - 対象サービスは systemd 管理下の Tomcat
+#   - graceful / graceful-stop は存在しない前提
+#   - httpd -t に相当する標準の設定検証コマンドは持たない
+#     （設定妥当性チェックは原則スコープ外）
+#   - 必要な場合のみ、外部コマンドを CONFIG_TEST_CMD で指定可能
 #
 # 実行例（必須指定）：
-#   TOMCAT_SERVICE="tomcat9" TOMCAT_PORT="8080" TOMCAT_PATH="/" sh it_manage_service_tomcat_full.sh
+#   TOMCAT_SERVICE="tomcat9" TOMCAT_PORT="8080" TOMCAT_PATH="/" \
+#   sh it_manage_service_tomcat.sh
 #
-# 任意（設定テストコマンド）：
-#   CONFIG_TEST_CMD="test -f /opt/tomcat/conf/server.xml" ...（例）
+# 任意（設定検証コマンド）：
+#   CONFIG_TEST_CMD="test -f /opt/tomcat/conf/server.xml"（例）
 # ------------------------------------------------------------------
 
 cd "$(dirname "$0")" || exit 1
@@ -58,15 +64,18 @@ fatal() {
 # ------------------------------------------------------------
 # 共通チェック
 # ------------------------------------------------------------
+# root 権限で実行されていることを保証する
 assert_root() {
     [ "$(id -u)" -eq 0 ] || fatal "root で実行すること"
 }
 
+# 指定したコマンドが実行可能であることを保証する
 assert_cmd() {
     cmd="$1"
     command -v "$cmd" >/dev/null 2>&1 || fatal "$cmd が存在しない"
 }
 
+# テスト実行に必要な前提条件（ファイル・権限・コマンド・環境変数・unit）を一括検証する
 assert_prereq() {
     [ -f "$TARGET" ] || fatal "manage_service.sh が見つからない（bin 配下で実行しているか確認）"
     [ -f "../com/utils.shrc" ] || fatal "../com/utils.shrc が存在しない"
@@ -88,10 +97,12 @@ assert_prereq() {
 # ------------------------------------------------------------
 # 状態取得
 # ------------------------------------------------------------
+# systemd から対象サービスの実状態（active / inactive など）を取得する
 get_state() {
     systemctl is-active "$TOMCAT_SERVICE" 2>/dev/null
 }
 
+# systemd が管理している対象サービスの MainPID を取得する
 get_main_pid() {
     systemctl show -p MainPID "$TOMCAT_SERVICE" 2>/dev/null | awk -F= '{print $2}'
 }
@@ -99,11 +110,13 @@ get_main_pid() {
 # ------------------------------------------------------------
 # Tomcat 実体検証
 # ------------------------------------------------------------
+# 指定したポート（TOMCAT_PORT）で LISTEN していることを確認する
 assert_listen_port() {
     # LISTEN :${TOMCAT_PORT}
     ss -lnt 2>/dev/null | awk '{print $4}' | grep -E "(:${TOMCAT_PORT}$|\]:${TOMCAT_PORT}$)" >/dev/null 2>&1
 }
 
+# HTTP が応答していることを確認する（200–399 を成功とみなす）
 assert_http_up() {
     # 200-399 を「応答あり」とみなす（301/302 の環境差を許容）
     code="$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${TOMCAT_PORT}${TOMCAT_PATH}" 2>/dev/null)"
@@ -113,12 +126,14 @@ assert_http_up() {
     return 1
 }
 
+# HTTP が応答しないことを確認する（接続失敗を期待）
 assert_http_down() {
     curl -sS --max-time 2 -o /dev/null "http://127.0.0.1:${TOMCAT_PORT}${TOMCAT_PATH}" >/dev/null 2>&1
     rc=$?
     [ "$rc" -ne 0 ]
 }
 
+# 設定検証コマンド（CONFIG_TEST_CMD）が指定されている場合のみ実行し、成功可否を返す
 run_config_test_if_set() {
     [ -n "$CONFIG_TEST_CMD" ] || return 0
     # shellcheck disable=SC2086
@@ -129,7 +144,8 @@ run_config_test_if_set() {
 
 # ------------------------------------------------------------
 # テスト実行ラッパ
-# ------------------------------------------------------------
+# -----------------------------------------------------------
+# 指定した終了コードと実行結果の終了コードが一致するかを検証するテスト用関数-
 run_expect_eq() {
     name="$1"
     expect="$2"
@@ -145,6 +161,7 @@ run_expect_eq() {
     fi
 }
 
+# 終了コードが 0 以外であることを検証するテスト用関数
 run_expect_ne0() {
     name="$1"
     shift 1
@@ -159,6 +176,7 @@ run_expect_ne0() {
     fi
 }
 
+# 終了コードと内部状態の両方が期待値どおりかを検証するテスト用関数
 run_expect_eq_state() {
     name="$1"
     expect_rc="$2"
@@ -181,6 +199,7 @@ run_expect_eq_state() {
     fi
 }
 
+# サービスが正常起動し、状態が active かつ HTTP(80) で応答可能かを検証するテスト用関数
 run_expect_service_up() {
     name="$1"
     shift 1
@@ -205,6 +224,7 @@ run_expect_service_up() {
     ok "$name"
 }
 
+# サービスが停止状態（inactive）であり、HTTP が応答しないことを検証するテスト用関数
 run_expect_service_down() {
     name="$1"
     shift 1
@@ -255,48 +275,110 @@ else
 fi
 
 # ------------------------------------------------------------
-# 1) 引数テスト（rc=2）
-#   httpd版と同じ観点（サービス名だけ tomcat にする）
+# 1) 引数バリデーションテスト
+#   不正・不足・異常な引数に対して rc=2 で終了することを確認
 # ------------------------------------------------------------
+
+# 引数なし → エラー
 run_expect_eq "T01 no args"               2
+
+# -s のみ指定（-c 不足）→ エラー
 run_expect_eq "T02 -s only"               2 -s "$TOMCAT_SERVICE"
+
+# -c のみ指定（-s 不足）→ エラー
 run_expect_eq "T03 -c only"               2 -c start
+
+# -s が空文字 → エラー
 run_expect_eq "T04 -s empty"              2 -s ""
+
+# -c が空文字 → エラー
 run_expect_eq "T05 -c empty"              2 -c ""
+
+# -s 正常 / -c 空文字 → エラー
 run_expect_eq "T06 -s tomcat -c empty"    2 -s "$TOMCAT_SERVICE" -c ""
+
+# -s 空文字 / -c 正常 → エラー
 run_expect_eq "T07 -s empty -c start"     2 -s "" -c start
+
+# 未定義コマンド指定 → エラー
 run_expect_eq "T08 invalid command"       2 -s "$TOMCAT_SERVICE" -c dummy
+
+# 未定義オプション指定 → エラー
 run_expect_eq "T09 invalid option"        2 -x
 
-# reverse order は許容（rc=0）
+# ------------------------------------------------------------
+# 正常系引数（順序非依存）
+# ------------------------------------------------------------
+
+# -s / -c の指定順が逆でも正常に解釈されることを確認
 run_expect_eq "T10 reverse order" 0 -c start -s "$TOMCAT_SERVICE"
 
 # ------------------------------------------------------------
-# 2) stop/start/restart/status の結合（状態 + LISTEN + HTTP）
+# 2) サービス操作の結合テスト
+#   stop / start / restart / status を実行し、
+#   状態・LISTEN・HTTP の「実体」で確認する
 # ------------------------------------------------------------
-run_expect_service_down "T20 stop (inactive + http down)" -s "$TOMCAT_SERVICE" -c stop
-run_expect_service_up   "T21 start (active + listen + http up)" -s "$TOMCAT_SERVICE" -c start
+
+# [前提] 停止中でも起動中でもよい
+# [操作] stop
+# [確認] inactive / HTTP down
+run_expect_service_down "T20 stop" -s "$TOMCAT_SERVICE" -c stop
+
+# [前提] 停止中
+# [操作] start
+# [確認] active / LISTEN / HTTP up
+run_expect_service_up   "T21 start" -s "$TOMCAT_SERVICE" -c start
+
+# [前提] 起動中
+# [操作] start を再実行
+# [確認] active 維持 / HTTP up（起動の冪等性）
 run_expect_service_up   "T22 start again (idempotent)" -s "$TOMCAT_SERVICE" -c start
+
+# [前提] 起動中
+# [操作] status
+# [確認] 状態変化なし / active
 run_expect_eq_state     "T23 status (running)" 0 active -s "$TOMCAT_SERVICE" -c status
 
+# [前提] 起動中
+# [操作] restart
+# [確認] active / HTTP up
 pid_before="$(get_main_pid)"
-run_expect_service_up   "T24 restart (active + http up)" -s "$TOMCAT_SERVICE" -c restart
+run_expect_service_up   "T24 restart" -s "$TOMCAT_SERVICE" -c restart
+
+# ------------------------------------------------------------
+# T25: restart 実装の挙動観測（参考情報）
+#   - MainPID が変わるかどうかを確認する
+#   - PID 変化の有無は仕様としては扱わない
+#   - テストの合否には影響させない
+# ------------------------------------------------------------
 pid_after="$(get_main_pid)"
-if [ -n "$pid_before" ] && [ -n "$pid_after" ] && [ "$pid_before" != "0" ] && [ "$pid_after" != "0" ] && [ "$pid_before" != "$pid_after" ]; then
-    ok "T25 restart changes MainPID"
+if [ -n "$pid_before" ] && [ -n "$pid_after" ] &&
+   [ "$pid_before" != "0" ] && [ "$pid_after" != "0" ] &&
+   [ "$pid_before" != "$pid_after" ]; then
+    ok "T25 restart changes MainPID (observed)"
 else
-    ok "T25 restart changes MainPID (skipped by environment)"
+    ok "T25 restart keeps MainPID (observed)"
 fi
 
-run_expect_service_down "T26 stop after restart (inactive + http down)" -s "$TOMCAT_SERVICE" -c stop
+# [前提] restart 後に起動中
+# [操作] stop
+# [確認] inactive / HTTP down
+run_expect_service_down "T26 stop after restart" -s "$TOMCAT_SERVICE" -c stop
+
+# [前提] 停止中
+# [操作] status
+# [確認] 状態変化なし / inactive
 run_expect_eq_state     "T27 status (stopped)" 0 inactive -s "$TOMCAT_SERVICE" -c status
 
 # ------------------------------------------------------------
-# 3) 異常系
+# 3) 異常系テスト
+#   想定外入力・外部割り込みに対して「正しく失敗する」ことを確認する
 # ------------------------------------------------------------
+
+# 存在しないサービス名を指定した場合に、正常終了しないことを確認
 run_expect_ne0 "T30 invalid service" -s dummy -c start
 
-# SIGINT（rc=2）
+# 実行中に SIGINT（Ctrl+C 相当）を受けた場合に rc=2 で終了することを確認
 (
     sh "$TARGET" -s "$TOMCAT_SERVICE" -c start >/dev/null 2>&1
 ) &
