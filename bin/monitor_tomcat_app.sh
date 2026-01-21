@@ -44,12 +44,13 @@ MANAGER_PASS=""
 APP_PATH=""
 APP_FILE=""
 
-CHECK_INTERVAL_SEC=10
+CHECK_INTERVAL_SEC=1
 MANAGER_TIMEOUT_SEC=3
 TOMCAT_BOOT_WAIT_SEC=5
 
-PID_DIR="/var/run/monitor_tomcat_app"
-META_DIR="/var/run/monitor_tomcat_app/meta"
+PID_ROOT="$(cd "$(dirname "$0")/.." && pwd)/tmp/monitor_tomcat_app"
+PID_DIR=""
+META_DIR=""
 
 MANAGE_SCRIPT="$SCRIPT_DIR/manage_tomcat_app.sh"
 TOMCAT_UNIT="tomcat9.service"
@@ -89,14 +90,31 @@ Options:
 -f file : 1行1パスのファイル (#コメント、空行は無視)
 
 Example:
-sh monitor_tomcat_app.sh -c list
+sh monitor_tomcat_app.sh -c list -b http://localhost:8080
+sh monitor_tomcat_app.sh -c list -b http://localhost:8081
 sh monitor_tomcat_app.sh -c start -b http://localhost:8080 -u admin -p admin123 -a /docs
 sh monitor_tomcat_app.sh -c start -b http://localhost:8080 -u admin -p admin123 -f /opt/tomcat9/conf/apps_online.lst
-sh monitor_tomcat_app.sh -c status -a /docs
+sh monitor_tomcat_app.sh -c start -b http://localhost:8081 -u admin -p admin123 -f /opt/tomcat9/conf/apps_batch.lst
+sh monitor_tomcat_app.sh -c status -b http://localhost:8080 -a /docs
 sh monitor_tomcat_app.sh -c show -b http://localhost:8080 -u admin -p admin123 -a /docs
-sh monitor_tomcat_app.sh -c stop -a /docs
+sh monitor_tomcat_app.sh -c stop -b http://localhost:8080 -a /docs
 --------------------------------------
 EOF
+}
+
+baseToKey() {
+    local base_url="$1"
+    echo "$base_url" \
+        | sed 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' \
+        | sed 's#[/:]#_#g' \
+        | sed 's#[^0-9A-Za-z_.-]#_#g'
+}
+
+setRunDirs() {
+    local base_key
+    base_key=$(baseToKey "$BASE_URL")
+    PID_DIR="${PID_ROOT}/${base_key}"
+    META_DIR="${PID_DIR}/meta"
 }
 
 # ------------------------------------------------------------------
@@ -780,6 +798,7 @@ cmdStart() {
         if validateTargetExists "$p"; then
             nohup env MODE=daemon sh "$0" -c start -b "$BASE_URL" -u "$MANAGER_USER" -p "$MANAGER_PASS" -a "$p" >/dev/null 2>&1 &
 
+
             echo "$p started"
         else
             echo "$p skipped (not found)"
@@ -835,11 +854,6 @@ scope="pre"
 startLog
 trap "terminate" 1 2 3 15
 
-initDirs
-if [ $? -ne 0 ]; then
-    exitLog 2
-fi
-
 while getopts "c:b:u:p:a:f:" opt; do
     case "$opt" in
         c) CMD="$OPTARG" ;;
@@ -851,6 +865,13 @@ while getopts "c:b:u:p:a:f:" opt; do
         *) usage; exitLog 2 ;;
     esac
 done
+
+setRunDirs
+
+initDirs
+if [ $? -ne 0 ]; then
+    exitLog 2
+fi
 
 validateArgs
 if [ $? -ne 0 ]; then
