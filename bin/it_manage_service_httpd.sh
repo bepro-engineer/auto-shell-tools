@@ -1,17 +1,29 @@
 #!/bin/sh
+# ------------------------------------------------------------------
 # it_manage_service_httpd.sh
 # IT for manage_service.sh (httpd)
+#
 # 判定：
 #   - 終了コード(rc)
-#   - systemd 実状態（active/inactive）
+#   - systemd 実状態（active / inactive）
 #   - httpd 設定妥当性（httpd -t）
 #   - LISTEN 確認（ss）
 #   - HTTP 疎通（curl）
 #
 # 方針：
-#   - 疑似systemctlは使わない（実systemd）
-#   - 疑似curlは使わない（実curl）
+#   - 疑似 systemctl は使わない（実 systemd）
+#   - 疑似 curl は使わない（実 curl）
 #   - 排他制御はテスト項目から除外
+#
+# 前提：
+#   - 対象サービスは systemd 管理下の httpd
+#   - graceful / graceful-stop をサポートする前提
+#
+# 実行例（必須指定）：
+#   HTTPD_SERVICE="httpd" HTTP_PORT="80" HTTP_PATH="/" \
+#   sh it_manage_service_httpd.sh
+# ------------------------------------------------------------------
+
 cd "$(dirname "$0")" || exit 1
 
 TARGET="./manage_service.sh"
