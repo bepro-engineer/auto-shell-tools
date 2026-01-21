@@ -74,8 +74,11 @@ get_main_pid() {
 }
 
 # ------------------------------------------------------------
-# httpd 実体検証
+# httpd 実体検証アサーション
+#   サービス制御結果が「見た目だけでなく実体として正しいか」を確認する
 # ------------------------------------------------------------
+
+# httpd の設定ファイルが文法的に正しいことを確認
 assert_config_ok() {
     httpd -t >/dev/null 2>&1
     rc=$?
@@ -83,13 +86,15 @@ assert_config_ok() {
     return 0
 }
 
+# TCP 80 番ポートで LISTEN していることを確認
+#   ※ 環境差を避けるため 443 は前提にしない
 assert_listen_80() {
-    # 80 LISTEN を必須とする（環境により 443 は無い前提）
     ss -lnt 2>/dev/null | awk '{print $4}' | grep -E '(:80$|\]:80$)' >/dev/null 2>&1
 }
 
+# HTTP が応答していることを確認
+#   200-399 を「サービス稼働中」とみなす（リダイレクト許容）
 assert_http_up() {
-    # 200-399 を「応答あり」とみなす（301/302 の環境差を許容）
     code="$(curl -sS --max-time 2 -o /dev/null -w "%{http_code}" http://127.0.0.1/ 2>/dev/null)"
     case "$code" in
         2??|3??) return 0 ;;
@@ -97,8 +102,9 @@ assert_http_up() {
     return 1
 }
 
+# HTTP が応答しないことを確認
+#   停止後は curl 自体が失敗する（rc != 0）ことを期待
 assert_http_down() {
-    # 停止後は curl が失敗（rc!=0）するのを期待
     curl -sS --max-time 2 -o /dev/null http://127.0.0.1/ >/dev/null 2>&1
     rc=$?
     [ "$rc" -ne 0 ]
@@ -107,6 +113,7 @@ assert_http_down() {
 # ------------------------------------------------------------
 # テスト実行ラッパ
 # ------------------------------------------------------------
+# 指定した終了コードと実行結果の終了コードが一致するかを検証するテスト用関数
 run_expect_eq() {
     name="$1"
     expect="$2"
@@ -122,6 +129,7 @@ run_expect_eq() {
     fi
 }
 
+# 終了コードが 0 以外であることを検証するテスト用関数
 run_expect_ne0() {
     name="$1"
     shift 1
@@ -136,6 +144,7 @@ run_expect_ne0() {
     fi
 }
 
+# 終了コードと内部状態の両方が期待値どおりかを検証するテスト用関数
 run_expect_eq_state() {
     name="$1"
     expect_rc="$2"
@@ -158,6 +167,7 @@ run_expect_eq_state() {
     fi
 }
 
+# サービスが正常起動し、状態が active かつ HTTP(80) で応答可能かを検証するテスト用関数
 run_expect_service_up() {
     name="$1"
     shift 1
@@ -182,6 +192,7 @@ run_expect_service_up() {
     ok "$name"
 }
 
+# サービスが停止状態（inactive）であり、HTTP が応答しないことを検証するテスト用関数
 run_expect_service_down() {
     name="$1"
     shift 1
@@ -224,73 +235,124 @@ else
 fi
 
 # ------------------------------------------------------------
-# 1) 引数テスト（rc=2）
+# 1) 引数バリデーションテスト
+#    不正・不足・不正形式の引数に対して rc=2 で終了することを確認
 # ------------------------------------------------------------
+
+# 引数なし → エラー
 run_expect_eq "T01 no args"               2
+
+# -s のみ指定（-c 不足）→ エラー
 run_expect_eq "T02 -s only"               2 -s httpd
+
+# -c のみ指定（-s 不足）→ エラー
 run_expect_eq "T03 -c only"               2 -c start
+
+# -s が空文字 → エラー
 run_expect_eq "T04 -s empty"              2 -s ""
+
+# -c が空文字 → エラー
 run_expect_eq "T05 -c empty"              2 -c ""
+
+# -s 正常 / -c 空文字 → エラー
 run_expect_eq "T06 -s httpd -c empty"     2 -s httpd -c ""
+
+# -s 空文字 / -c 正常 → エラー
 run_expect_eq "T07 -s empty -c start"     2 -s "" -c start
+
+# 未定義コマンド指定 → エラー
 run_expect_eq "T08 invalid command"       2 -s httpd -c dummy
+
+# 未定義オプション指定 → エラー
 run_expect_eq "T09 invalid option"        2 -x
 
-# reverse order は許容（rc=0）
+# -s / -c の指定順が逆でも正常に解釈され、エラーにならないことを確認
 run_expect_eq "T10 reverse order" 0 -c start -s httpd
 
 # ------------------------------------------------------------
-# 2) start/stop/restart/status の結合（状態 + LISTEN + HTTP）
+# 2) httpd サービス操作の結合テスト
+#    前提状態 → 操作 → 結果（state / LISTEN / HTTP）を確認
 # ------------------------------------------------------------
-# stop -> inactive & HTTP down
-run_expect_service_down "T20 stop (force inactive + http down)" -s httpd -c stop
 
-# start -> active & LISTEN & HTTP up
-run_expect_service_up "T21 start (active + listen80 + http up)" -s httpd -c start
+# [前提] httpd は停止中
+# [操作] stop を再実行
+# [確認] 依然として inactive / HTTP down（停止の冪等性）
+run_expect_service_down "T20 stop on already stopped service" -s httpd -c stop
 
-# start again（冪等）-> active & HTTP up
+# [前提] httpd は停止中
+# [操作] start
+# [確認] active / LISTEN 80 / HTTP up
+run_expect_service_up "T21 start from stopped state" -s httpd -c start
+
+# [前提] httpd は起動中
+# [操作] start を再実行
+# [確認] active のまま / HTTP up（起動の冪等性）
 run_expect_service_up "T22 start again (idempotent)" -s httpd -c start
 
-# status running -> 状態変化なし & active
-run_expect_eq_state "T23 status (running)" 0 active -s httpd -c status
+# [前提] httpd は起動中
+# [操作] status
+# [確認] 状態変化なし / active
+run_expect_eq_state "T23 status while running" 0 active -s httpd -c status
 
-# restart -> active & HTTP up
+# [前提] httpd は起動中
+# [操作] restart
+# [確認] active / HTTP up
 pid_before="$(get_main_pid)"
-run_expect_service_up "T24 restart (active + http up)" -s httpd -c restart
+run_expect_service_up "T24 restart service" -s httpd -c restart
+
+# [確認] restart により MainPID が変わるか（参考情報）
 pid_after="$(get_main_pid)"
 if [ -n "$pid_before" ] && [ -n "$pid_after" ] && [ "$pid_before" != "0" ] && [ "$pid_after" != "0" ] && [ "$pid_before" != "$pid_after" ]; then
     ok "T25 restart changes MainPID"
 else
-    # PID が変わらない実装/環境もあるため、ここは情報として扱い NG にしない
-    ok "T25 restart changes MainPID (skipped by environment)"
+    ok "T25 restart changes MainPID (environment dependent)"
 fi
 
-# graceful -> active & HTTP up（PID変化は期待しない）
-run_expect_service_up "T26 graceful (keep active + http up)" -s httpd -c graceful
+# [前提] httpd は起動中
+# [操作] graceful
+# [確認] active のまま / HTTP up（PID維持）
+run_expect_service_up "T26 graceful reload" -s httpd -c graceful
 
-# graceful-stop -> inactive & HTTP down
-run_expect_service_down "T27 graceful-stop (inactive + http down)" -s httpd -c graceful-stop
+# [前提] httpd は起動中
+# [操作] graceful-stop
+# [確認] inactive / HTTP down
+run_expect_service_down "T27 graceful-stop service" -s httpd -c graceful-stop
 
-# status stopped -> 状態変化なし & inactive
-run_expect_eq_state "T28 status (stopped)" 0 inactive -s httpd -c status
+# [前提] httpd は停止中
+# [操作] status
+# [確認] 状態変化なし / inactive
+run_expect_eq_state "T28 status while stopped" 0 inactive -s httpd -c status
 
 # ------------------------------------------------------------
-# 3) 異常系
+# 3) 異常系テスト
+#    想定外の操作・不正状態に対して、正常終了せず適切に失敗することを確認
 # ------------------------------------------------------------
+
+# [前提] 存在しないサービス名
+# [操作] start
+# [確認] 正常終了しない（rc != 0）
 run_expect_ne0 "T30 invalid service" -s dummy -c start
 
-# graceful when stopped は失敗想定（rc!=0）
+
+# [前提] httpd は停止中
+# [操作] graceful（起動中でなければ成立しない操作）
+# [確認] 失敗する（rc != 0）
 run_expect_ne0 "T31 graceful when stopped" -s httpd -c graceful
 
-# SIGINT（rc=2）
+
+# [前提] httpd を start 実行中
+# [操作] 実行途中で SIGINT（Ctrl+C 相当）を送信
+# [確認] 割り込み終了コード rc=2 で終了する
 (
     sh "$TARGET" -s httpd -c start >/dev/null 2>&1
 ) &
 PID=$!
+
 sleep 0.1
 kill -INT "$PID" >/dev/null 2>&1
 wait "$PID"
 rc=$?
+
 if [ "$rc" -eq 2 ]; then
     ok "T32 SIGINT"
 else
