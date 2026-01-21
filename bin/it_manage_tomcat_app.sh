@@ -98,6 +98,8 @@ TMP_DIR="$(mktemp -d 2>/dev/null)"
 [ -n "$TMP_DIR" ] || exit 1
 trap 'rm -rf "$TMP_DIR"' 0 1 2 3 15
 
+F_EMPTY="${TMP_DIR}/apps_empty.lst"
+
 # -f（file指定）テスト用：アプリパス一覧ファイル群（空／コメントのみ／警告系／エラー系／空白混在）
 # ------------------------------------------------------------
 # 後述の test 項目 T71 で使用するためのファイルを作成する
@@ -205,7 +207,6 @@ F_MIX_SPACE="${TMP_DIR}/apps_mix_space.lst"
 cat > "$F_COMMENT" <<EOF
 # comment only
 # another comment
-
 EOF
 
 # 先に running を作っておく（WARNING(1) を確実に出すため）
