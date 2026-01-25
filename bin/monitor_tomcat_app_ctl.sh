@@ -350,6 +350,13 @@ resolveUnit
 scope="main"
 
 logOut "INFO" "Execute unit control. cmd=[$CMD] unit=[$UNIT] base=[$BASE_URL] context=[$CONTEXT_NAME]"
+
+case "$CMD" in
+    start|stop)
+        checkContextExists
+        ;;
+esac
+
 execSystemctl
 RC=$?
 
