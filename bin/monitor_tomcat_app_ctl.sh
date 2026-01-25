@@ -231,6 +231,30 @@ isUnitActive() {
 }
 
 # ------------------------------------------------------------------
+# 関数名　　：checkUnitExists
+# 概要　　　：systemd ユニットの存在チェック
+# 説明　　　：
+#   systemctl show の LoadState を確認し、not-found の場合は異常終了する。
+#
+# 引数　　　：なし（UNIT を内部参照）
+# 戻り値　　：0 : 存在する
+#             exitLog 2 : 存在しない
+# 使用箇所　：main-process（start/stop/status の直前）
+# ------------------------------------------------------------------
+checkUnitExists() {
+    local load_state
+
+    load_state="$(systemctl show "$UNIT" -p LoadState --value 2>/dev/null)"
+
+    if [ "$load_state" = "not-found" ] || [ -z "$load_state" ]; then
+        logOut "ERROR" "Unit not found. unit=[$UNIT]"
+        exitLog 2
+    fi
+
+    return 0
+}
+
+# ------------------------------------------------------------------
 # pre-process
 # ------------------------------------------------------------------
 scope="pre"
@@ -251,25 +275,25 @@ logOut "INFO" "Execute unit control. cmd=[$CMD] unit=[$UNIT] base=[$BASE_URL] co
 
 case "$CMD" in
     start)
-        # すでに起動済みなら何もしない（実行済みメッセージを出す）
+        checkUnitExists
         if isUnitActive; then
             logOut "INFO" "Already running. unit=[$UNIT]"
             exitLog 0
         fi
-
-        # 起動前にコンテキスト存在チェック
         checkContextExists
         ;;
     stop)
-        # すでに停止済みなら何もしない（実行済みメッセージを出す）
+        checkUnitExists
         if ! isUnitActive; then
             logOut "INFO" "Already stopped. unit=[$UNIT]"
             exitLog 0
         fi
         ;;
+    status)
+        checkUnitExists
+        ;;
     restart)
-        # restart は「起動済み/停止済み」どちらでも実行するが、
-        # 起動に入るため事前チェックは必須
+        checkUnitExists
         checkContextExists
         ;;
 esac
