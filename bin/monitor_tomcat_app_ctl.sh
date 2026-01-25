@@ -373,6 +373,23 @@ checkContextExists() {
 }
 
 # ------------------------------------------------------------------
+# 関数名　　：isUnitActive
+# 概要　　　：systemd ユニット起動状態判定
+# 説明　　　：
+#   systemctl is-active を用いて、対象ユニットが active かを判定する。
+#   active の場合は 0、それ以外は 1 を返す。
+#
+# 引数　　　：なし（UNIT を内部参照）
+# 戻り値　　：0 : active
+#             1 : active 以外
+# 使用箇所　：main-process（start/stop/restart 前処理）
+# ------------------------------------------------------------------
+isUnitActive() {
+    systemctl is-active --quiet "$UNIT"
+    return $?
+}
+
+# ------------------------------------------------------------------
 # pre-process
 # ------------------------------------------------------------------
 scope="pre"
@@ -392,7 +409,26 @@ scope="main"
 logOut "INFO" "Execute unit control. cmd=[$CMD] unit=[$UNIT] base=[$BASE_URL] context=[$CONTEXT_NAME]"
 
 case "$CMD" in
-    start|stop)
+    start)
+        # すでに起動済みなら何もしない（実行済みメッセージを出す）
+        if isUnitActive; then
+            logOut "INFO" "Already running. unit=[$UNIT]"
+            exitLog 0
+        fi
+
+        # 起動前にコンテキスト存在チェック
+        checkContextExists
+        ;;
+    stop)
+        # すでに停止済みなら何もしない（実行済みメッセージを出す）
+        if ! isUnitActive; then
+            logOut "INFO" "Already stopped. unit=[$UNIT]"
+            exitLog 0
+        fi
+        ;;
+    restart)
+        # restart は「起動済み/停止済み」どちらでも実行するが、
+        # 起動に入るため事前チェックは必須
         checkContextExists
         ;;
 esac
