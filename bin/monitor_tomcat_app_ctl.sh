@@ -273,6 +273,12 @@ parseArgs() {
 # 概要　　　：必須引数チェック
 # ------------------------------------------------------------------
 validateArgs() {
+    # 引数が一つも無い場合は usage を出して終了
+    if [ $# -eq 0 ]; then
+        usage
+        exitLog 1
+    fi
+
     if [ -z "$BASE_URL" ] || [ -z "$CONTEXT_NAME" ] || [ -z "$CMD" ]; then
         logOut "ERROR" "Missing required arguments. base=[$BASE_URL] context=[$CONTEXT_NAME] cmd=[$CMD]"
         usage
@@ -398,7 +404,7 @@ startLog
 trap "exitLog 1" 1 2 3 15
 
 parseArgs "$@"
-validateArgs
+validateArgs "$@"
 resolveUnit
 
 # ------------------------------------------------------------------
