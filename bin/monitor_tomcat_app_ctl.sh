@@ -333,6 +333,46 @@ execSystemctl() {
 }
 
 # ------------------------------------------------------------------
+# 関数名　　：checkContextExists
+# 概要　　　：監視対象 Tomcat コンテキストの事前存在チェック
+# 説明　　　：
+#   systemd unit を start する前に、BASE_URL + "/"+CONTEXT_NAME へ HTTP アクセスを行い、
+#   対象コンテキストが実在するかを確認する。
+#   存在しない場合は、unit を起動せず異常終了する。
+#
+#   正常判定は HTTP ステータス 200 / 302 とする。
+#   curl の通信失敗（DNS/接続不可/タイムアウト等）も異常終了する。
+#
+# 引数　　　：なし（BASE_URL / CONTEXT_NAME を内部参照）
+# 戻り値　　：0  正常（監視開始可能）
+#             exitLog 2 により異常終了（監視開始不可）
+# 使用箇所　：main-process（CMD=start の直前）
+# ------------------------------------------------------------------
+checkContextExists() {
+    local url
+    local http_code
+    local curl_rc
+
+    url="${BASE_URL}/${CONTEXT_NAME}"
+
+    http_code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 3 "$url")"
+    curl_rc=$?
+
+    if [ "$curl_rc" -ne 0 ]; then
+        logOut "ERROR" "Context precheck failed (curl error). url=[$url] curl_rc=[$curl_rc] http_code=[$http_code]"
+        exitLog 2
+    fi
+
+    if [ "$http_code" = "200" ] || [ "$http_code" = "302" ]; then
+        logOut "INFO" "Context precheck OK. url=[$url] http_code=[$http_code]"
+        return 0
+    fi
+
+    logOut "ERROR" "Context not found. url=[$url] http_code=[$http_code]"
+    exitLog 2
+}
+
+# ------------------------------------------------------------------
 # pre-process
 # ------------------------------------------------------------------
 scope="pre"
