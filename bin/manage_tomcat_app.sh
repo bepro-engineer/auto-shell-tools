@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 #
 # manage_app.sh
@@ -6,10 +6,10 @@
 #
 # Usage:
 #   Single:
-#     sh manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -a <context_path>
+#     bash manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -a <context_path>
 #
 #   File:
-#     sh manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -f <file>
+#     bash manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -f <file>
 #
 # Command:
 #   list|status|start|stop|restart
@@ -67,10 +67,10 @@ usage() {
 --------------------------------------
 Usage:
   Single:
-    sh manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -a <context_path>
+    bash manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -a <context_path>
 
   File:
-    sh manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -f <file>
+    bash manage_app.sh -c <command> -u <user> -p <password> [-b <base_url>] -f <file>
 
 Options:
   -c command      : list|status|start|stop|restart
@@ -81,9 +81,9 @@ Options:
   -f file         : 1行1パスのファイル（#コメント、空行は無視）
 
 Example:
-  sh manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -c list
-  sh manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -a /docs -c stop
-  sh manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -f /opt/tomcat9/conf/apps_online.lst -c start
+  bash manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -c list
+  bash manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -a /docs -c stop
+  bash manage_tomcat_app.sh -b http://localhost:8080 -u admin -p admin123 -f /opt/tomcat9/conf/apps_online.lst -c start
 --------------------------------------
 EOF
 }

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 #
 # manage_service.sh
@@ -11,8 +11,8 @@
 #    任意の systemd サービスを制御する汎用スクリプト（getopts対応）
 #    - ログ出力に対応（logger.shrc 準拠）
 #    - 使用例：
-#        sh manage_service.sh -s httpd -c start
-#        sh manage_service.sh -s sshd -c status
+#        bash manage_service.sh -s httpd -c start
+#        bash manage_service.sh -s sshd -c status
 #
 #_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
 # ＜変更履歴＞
@@ -68,8 +68,8 @@ Commands:
   status          - Display current service status
 --------------------------------------
 Example:
-  sh manage_service.sh -s httpd -c start
-  sh manage_service.sh -s sshd -c status
+  bash manage_service.sh -s httpd -c start
+  bash manage_service.sh -s sshd -c status
 EOF
 }
 
