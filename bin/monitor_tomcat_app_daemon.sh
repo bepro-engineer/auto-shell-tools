@@ -93,10 +93,21 @@ parseArgs() {
 # 概要　　　：環境変数チェック
 # ------------------------------------------------------------------
 validateEnv() {
-    if [ -z "$BASE_URL" ] || [ -z "$APP_PATH" ]; then
+    # 空/空白のみはNG
+    if [ -z "${BASE_URL//[[:space:]]/}" ] || [ -z "${APP_PATH//[[:space:]]/}" ]; then
         logOut "ERROR" "Missing env. BASE_URL=[$BASE_URL] APP_PATH=[$APP_PATH]"
         exitLog 1
     fi
+
+    # APP_PATH は「/から始まる」前提。ここでは補正しない（壊れてたら落とす）
+    case "$APP_PATH" in
+        /*)
+            ;;
+        *)
+            logOut "ERROR" "Invalid APP_PATH format. APP_PATH must start with '/'. APP_PATH=[$APP_PATH]"
+            exitLog 1
+            ;;
+    esac
 }
 
 # ------------------------------------------------------------------
@@ -112,20 +123,29 @@ validateEnv() {
 #   1 : 異常
 # ------------------------------------------------------------------
 checkApp() {
-    local http_code=""
+    local url
+    local http_code
+    local curl_rc
 
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}${APP_PATH}")
+    url="${BASE_URL}${APP_PATH}"
 
-    case "$http_code" in
-        200|302)
-            logOut "INFO" "App up. url=[${BASE_URL}${APP_PATH}] http_code=[$http_code]"
-            return 0
-            ;;
-        *)
-            logOut "ERROR" "App down. url=[${BASE_URL}${APP_PATH}] http_code=[$http_code]"
-            return 1
-            ;;
-    esac
+    http_code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 3 "$url")"
+    curl_rc=$?
+
+    # 通信失敗（DNS失敗/接続不可/タイムアウト等）
+    if [ "$curl_rc" -ne 0 ]; then
+        logOut "ERROR" "App check failed (curl). url=[$url] curl_rc=[$curl_rc] http_code=[$http_code]"
+        return 2
+    fi
+
+    # HTTP応答は取れたが、想定外ステータス
+    # 仕様統一：200 または 302 を正常とする（現行実装に合わせる）
+    if [ "$http_code" = "200" ] || [ "$http_code" = "302" ]; then
+        return 0
+    fi
+
+    logOut "ERROR" "App down. url=[$url] http_code=[$http_code]"
+    return 1
 }
 
 
@@ -144,13 +164,45 @@ validateEnv
 logOut "INFO" "Monitor daemon started. base=[$BASE_URL] path=[$APP_PATH] interval=[$INTERVAL]"
 
 # ------------------------------------------------------------------
-# main-process
+# main-process（最適化）
+# 方針：
+# - UP 時は状態変化時だけ INFO（ログ洪水防止）
+# - DOWN 時は毎回 ERROR（「落ちていたら出し続ける」要件どおり）
+# - checkApp の戻り値を使う（0=UP, 1=HTTP異常, 2=通信失敗）
 # ------------------------------------------------------------------
 scope="main"
+prev_state="INIT"
 
 while true
 do
     checkApp
+    rc=$?
+
+    case "$rc" in
+        0)
+            state="UP"
+            # 復旧時のみ INFO
+            if [ "$prev_state" != "$state" ]; then
+                logOut "INFO" "App recovered. url=[${BASE_URL}${APP_PATH}]"
+            fi
+            ;;
+        1)
+            state="DOWN_HTTP"
+            # DOWN は毎回 ERROR（出し続ける）
+            logOut "ERROR" "App down (http). url=[${BASE_URL}${APP_PATH}]"
+            ;;
+        2)
+            state="DOWN_COMM"
+            # DOWN は毎回 ERROR（出し続ける）
+            logOut "ERROR" "App down (comm). url=[${BASE_URL}${APP_PATH}]"
+            ;;
+        *)
+            state="DOWN_UNKNOWN"
+            logOut "ERROR" "App down (unknown rc). url=[${BASE_URL}${APP_PATH}] rc=[$rc]"
+            ;;
+    esac
+
+    prev_state="$state"
     sleep "$INTERVAL"
 done
 
